@@ -21,13 +21,18 @@ data class CheatEntry(
     val title: String,
     val version: String,
     val size: String,
-    val fileName: String
+    val fileName: String,
+    val sourceName: String? = null,
+    val assetName: String? = null,
+    val convertibleCount: Int? = null,
+    val riskyCount: Int? = null
 )
 
 object CheatRepository {
     private const val CODELIST_URL = "http://ps3.aldostools.org/codelist.html"
     private const val RAW_CODELIST_BASE =
         "https://raw.githubusercontent.com/aldostools/webMAN-MOD/master/_Projects_/codelists/"
+    private const val BUNDLED_INDEX_ASSET = "cheats/aldos_index.json"
 
     val entries = mutableStateListOf<CheatEntry>()
     val isLoading = mutableStateOf(false)
@@ -46,7 +51,10 @@ object CheatRepository {
         withContext(Dispatchers.IO) {
             try {
                 val cache = indexCacheFile(context)
-                val parsed = if (!forceRefresh && cache.exists()) {
+                val bundled = if (!forceRefresh) bundledIndex(context) else null
+                val parsed = if (bundled != null) {
+                    bundled
+                } else if (!forceRefresh && cache.exists()) {
                     json.decodeFromString(ListSerializer(CheatEntry.serializer()), cache.readText())
                 } else {
                     when (val response = GitHub.get(CODELIST_URL)) {
@@ -122,7 +130,11 @@ object CheatRepository {
             return@withContext cache.readText()
         }
 
-        val url = RAW_CODELIST_BASE + encodePathSegment(entry.fileName) + ".ncl"
+        bundledCheatText(context, entry)?.let {
+            return@withContext it
+        }
+
+        val url = RAW_CODELIST_BASE + encodePathSegment(entry.sourceName ?: entry.fileName) + ".ncl"
         when (val response = GitHub.get(url)) {
             is GitHub.GetResult.Error -> throw IllegalStateException("Failed to fetch cheat file: ${response.code} ${response.message}")
             is GitHub.GetResult.Success -> {
@@ -133,7 +145,8 @@ object CheatRepository {
         }
     }
 
-    fun sourceUrl(entry: CheatEntry): String = RAW_CODELIST_BASE + encodePathSegment(entry.fileName) + ".ncl"
+    fun sourceUrl(entry: CheatEntry): String =
+        RAW_CODELIST_BASE + encodePathSegment(entry.sourceName ?: entry.fileName) + ".ncl"
 
     private fun parseIndex(html: String): List<CheatEntry> {
         val rowRegex = Regex("<tr><td>(.*?)<td>(.*?)<td>(.*?)<td>(.*?)</tr>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
@@ -183,6 +196,24 @@ object CheatRepository {
 
     private fun cheatCacheFile(context: Context, entry: CheatEntry): File =
         File(cacheDir(context), "ncl/${entry.fileName.replace(Regex("[^A-Za-z0-9._ -]"), "_")}.ncl")
+
+    private fun bundledIndex(context: Context): List<CheatEntry>? {
+        val text = readAsset(context, BUNDLED_INDEX_ASSET) ?: return null
+        return json.decodeFromString(ListSerializer(CheatEntry.serializer()), text)
+    }
+
+    private fun bundledCheatText(context: Context, entry: CheatEntry): String? {
+        val assetName = entry.assetName
+            ?: bundledIndex(context)?.firstOrNull { it.fileName == entry.fileName }?.assetName
+            ?: return null
+        return readAsset(context, "cheats/ncl/$assetName")
+    }
+
+    private fun readAsset(context: Context, path: String): String? {
+        return runCatching {
+            context.assets.open(path).bufferedReader().use { it.readText() }
+        }.getOrNull()
+    }
 
     private fun cacheDir(context: Context): File {
         val root = if (RPCSX.rootDirectory.isNotBlank()) {

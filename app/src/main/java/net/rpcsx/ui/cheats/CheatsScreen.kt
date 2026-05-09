@@ -307,6 +307,12 @@ private fun CheatEntryCard(
                     listOf(entry.version, entry.size).filter { it.isNotBlank() }.joinToString("  "),
                     style = MaterialTheme.typography.bodySmall
                 )
+                if (entry.convertibleCount != null && entry.riskyCount != null) {
+                    Text(
+                        "${entry.convertibleCount} fixed, ${entry.riskyCount} risky",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
             TextButton(onClick = onOpen) {
                 Text("View")

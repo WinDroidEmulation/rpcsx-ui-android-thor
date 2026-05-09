@@ -1,0 +1,12 @@
+Bundled AldosTools / Artemis PS3 cheat database snapshot.
+
+Generated from:
+- http://ps3.aldostools.org/codelist.html
+- https://raw.githubusercontent.com/aldostools/webMAN-MOD/master/_Projects_/codelists/<file>.ncl
+
+The online codelist states that these codes are mirrored from the community
+Artemis code list repository maintained by bucanero.
+
+Generated at: 2026-05-09T22:34:12Z
+Entries: 2501
+Failed downloads: 0
