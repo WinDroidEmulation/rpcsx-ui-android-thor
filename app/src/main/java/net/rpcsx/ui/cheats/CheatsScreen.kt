@@ -52,6 +52,8 @@ import net.rpcsx.cheats.ArtemisInstallResult
 import net.rpcsx.cheats.CheatEntry
 import net.rpcsx.cheats.CheatRepository
 import net.rpcsx.cheats.CheatSelectionRepository
+import net.rpcsx.cheats.PatchHashRepository
+import net.rpcsx.cheats.PatchHashStatus
 import net.rpcsx.utils.GameIdentity
 import kotlinx.coroutines.launch
 
@@ -71,6 +73,9 @@ fun CheatsScreen(
     var isInstalling by remember { mutableStateOf(false) }
     var installResult by remember { mutableStateOf<ArtemisInstallResult?>(null) }
     var installError by remember { mutableStateOf<String?>(null) }
+    var patchStatus by remember(game?.info?.path) {
+        mutableStateOf(game?.let { PatchHashRepository.cachedStatus(context, it) })
+    }
     val scope = rememberCoroutineScope()
 
     val gameKey = game?.let { GameIdentity.primaryTitleId(it) ?: it.info.path } ?: "global"
@@ -79,8 +84,9 @@ fun CheatsScreen(
         RPCSX.state.value != EmulatorState.Stopped &&
         RPCSX.state.value != EmulatorState.Stopping
 
-    LaunchedEffect(refreshNonce) {
+    LaunchedEffect(refreshNonce, game?.info?.path) {
         CheatRepository.load(context, forceRefresh = refreshNonce > 0)
+        patchStatus = game?.let { PatchHashRepository.learnFromLogs(context, it) }
     }
 
     LaunchedEffect(selectedEntry) {
@@ -96,14 +102,15 @@ fun CheatsScreen(
         }
     }
 
+    val matchedEntries = game?.let { CheatRepository.matches(it) }.orEmpty()
     val baseEntries = if (query.isBlank() && game != null) {
-        CheatRepository.matches(game)
+        matchedEntries
     } else {
         CheatRepository.search(query)
     }
     val selectionVersion = selectionNonce
     val installEntries = if (game != null && selectionVersion >= 0) {
-        CheatSelectionRepository.enabledEntries(context, gameKey, CheatRepository.matches(game))
+        CheatSelectionRepository.enabledEntries(context, gameKey, matchedEntries)
     } else {
         emptyList()
     }
@@ -176,18 +183,51 @@ fun CheatsScreen(
             if (game != null) {
                 CheatInstallCard(
                     selectedCount = installEntries.size,
+                    matchedCount = matchedEntries.size,
+                    patchStatus = patchStatus,
                     isInstalling = isInstalling,
                     result = installResult,
                     error = installError,
-                    onApply = {
+                    onApplySelected = {
                         scope.launch {
                             isInstalling = true
                             installResult = null
                             installError = null
                             try {
                                 installResult = ArtemisConverter.installEntries(context, game, installEntries)
+                                patchStatus = PatchHashRepository.learnFromLogs(context, game)
                             } catch (e: Exception) {
                                 installError = e.message ?: "Failed to install Artemis patches"
+                            } finally {
+                                isInstalling = false
+                            }
+                        }
+                    },
+                    onInstallAll = {
+                        scope.launch {
+                            isInstalling = true
+                            installResult = null
+                            installError = null
+                            try {
+                                installResult = ArtemisConverter.installEntries(context, game, matchedEntries)
+                                patchStatus = PatchHashRepository.learnFromLogs(context, game)
+                            } catch (e: Exception) {
+                                installError = e.message ?: "Failed to install Artemis patches"
+                            } finally {
+                                isInstalling = false
+                            }
+                        }
+                    },
+                    onClear = {
+                        scope.launch {
+                            isInstalling = true
+                            installResult = null
+                            installError = null
+                            try {
+                                installResult = ArtemisConverter.installEntries(context, game, emptyList())
+                                patchStatus = PatchHashRepository.learnFromLogs(context, game)
+                            } catch (e: Exception) {
+                                installError = e.message ?: "Failed to clear Artemis patches"
                             } finally {
                                 isInstalling = false
                             }
@@ -236,30 +276,56 @@ fun CheatsScreen(
 @Composable
 private fun CheatInstallCard(
     selectedCount: Int,
+    matchedCount: Int,
+    patchStatus: PatchHashStatus?,
     isInstalling: Boolean,
     result: ArtemisInstallResult?,
     error: String?,
-    onApply: () -> Unit
+    onApplySelected: () -> Unit,
+    onInstallAll: () -> Unit,
+    onClear: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Artemis patches", style = MaterialTheme.typography.titleMedium)
+            patchStatus?.let {
+                Text("Patch status: ${PatchHashRepository.statusText(it)}", style = MaterialTheme.typography.bodySmall)
+                if (it.ppuHash == null && it.titleId != null) {
+                    Text("Boot once to learn the PPU hash required by RPCSX patches.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             Text(
                 if (selectedCount == 0) {
-                    "No entries selected. Applying clears RPCSX Easy generated patches for this game."
+                    "No selected entries. Install all fixed cheats or pick entries below."
                 } else {
                     "$selectedCount selected entries will be converted to next-boot RPCSX patches."
                 },
                 style = MaterialTheme.typography.bodySmall
             )
             Button(
-                onClick = onApply,
-                enabled = !isInstalling,
+                onClick = onApplySelected,
+                enabled = selectedCount > 0 && !isInstalling,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(painter = painterResource(id = R.drawable.ic_build), contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(if (isInstalling) "Installing..." else "Apply for Next Boot")
+                Text(if (isInstalling) "Installing..." else "Apply Selected")
+            }
+            Button(
+                onClick = onInstallAll,
+                enabled = matchedCount > 0 && !isInstalling,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(painter = painterResource(id = R.drawable.ic_star), contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Install All Fixed")
+            }
+            TextButton(
+                onClick = onClear,
+                enabled = !isInstalling,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Clear Generated Patches")
             }
             if (isInstalling) {
                 CircularProgressIndicator()

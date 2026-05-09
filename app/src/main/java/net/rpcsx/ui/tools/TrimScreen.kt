@@ -107,9 +107,9 @@ fun TrimScreen(
             text = {
                 Text(
                     if (hasRiskySelection) {
-                        "Risky items may remove language, audio, or video assets. Only continue if you have a backup or can reinstall the game."
+                        "Risky items may remove language, audio, or video assets. Installed-game files are moved to a backup; external selections are deleted."
                     } else {
-                        "Safe items are normally removable emulator clutter, but this still modifies files. Continue?"
+                        "Safe items are normally removable emulator clutter. Installed-game files are moved to a backup before removal. Continue?"
                     }
                 )
             },
@@ -117,12 +117,16 @@ fun TrimScreen(
                 TextButton(onClick = {
                     pendingApply = false
                     scope.launch {
-                        val deleted = withContext(Dispatchers.IO) {
+                        val result = withContext(Dispatchers.IO) {
                             TrimAnalyzer.apply(context, selectedVisible)
                         }
                         candidates.removeAll(selectedVisible.toSet())
                         selected.removeAll(selectedVisible.toSet())
-                        Toast.makeText(context, "Deleted $deleted items", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            "Backed up ${result.backedUp}, deleted ${result.deleted}",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }) {
                     Text("Apply")
@@ -190,6 +194,7 @@ fun TrimScreen(
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("${visibleCandidates.size} candidates")
                     Text("Selected: ${selectedVisible.size} (${TrimAnalyzer.formatSize(totalSelectedSize)})")
+                    Text("Installed-game files are moved to trim_backups; external selections are deleted through Android storage.")
                     if (isScanning) {
                         Text("Scanning...")
                     }

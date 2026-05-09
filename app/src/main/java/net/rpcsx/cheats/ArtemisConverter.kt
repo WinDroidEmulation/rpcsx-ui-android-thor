@@ -1,7 +1,6 @@
 package net.rpcsx.cheats
 
 import android.content.Context
-import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.rpcsx.Game
@@ -15,10 +14,16 @@ data class ArtemisWrite(
     val value: String
 )
 
+data class ArtemisAobPatch(
+    val searchPattern: String,
+    val replacePattern: String
+)
+
 data class ArtemisCheat(
     val name: String,
     val author: String,
     val writes: List<ArtemisWrite>,
+    val aobPatches: List<ArtemisAobPatch>,
     val unsupportedReasons: List<String>
 ) {
     val isSupported: Boolean
@@ -39,7 +44,6 @@ data class ArtemisInstallResult(
 )
 
 object ArtemisConverter {
-    private const val PREFS = "artemis_converter"
     private const val PATCH_VERSION = "1.2"
     private const val APP_VERSION = "All"
     private const val PATCH_SECTION_START = "# RPCSX Easy Artemis patches start"
@@ -48,8 +52,7 @@ object ArtemisConverter {
     private const val CONFIG_SECTION_END = "# RPCSX Easy Artemis patch config end"
 
     private val fixedWriteRegex = Regex("^0\\s+([0-9A-Fa-f]{8})\\s+([0-9A-Fa-f]{8})(?:\\s+.*)?$")
-    private val titleIdRegex = Regex("\\b[A-Z]{4}\\d{5}\\b", RegexOption.IGNORE_CASE)
-    private val ppuHashRegex = Regex("PPU executable hash:\\s*([0-9A-Fa-f]{8,64})")
+    private val aobReplaceRegex = Regex("^B\\s+([0-9A-Fa-f]{16,})\\s+([0-9A-Fa-f]{16,})(?:\\s+.*)?$", RegexOption.IGNORE_CASE)
     private val whitespaceRegex = Regex("\\s+")
 
     fun parse(text: String): List<ArtemisCheat> {
@@ -119,7 +122,7 @@ object ArtemisConverter {
             )
         }
 
-        val ppuHash = discoverPpuHash(context, game, titleId)
+        val ppuHash = PatchHashRepository.requirePpuHash(context, game, titleId)
         if (ppuHash == null) {
             return@withContext ArtemisInstallResult(
                 titleId = titleId,
@@ -134,8 +137,6 @@ object ArtemisConverter {
                 message = "Boot $titleId once, close it, then install again. RPCSX Easy needs the PPU patch hash from RPCSX.log."
             )
         }
-
-        rememberPpuHash(context, game, titleId, ppuHash)
 
         val patchItems = mutableListOf<PatchItem>()
         var skippedCheats = 0
@@ -229,6 +230,7 @@ object ArtemisConverter {
         }
 
         val writes = mutableListOf<ArtemisWrite>()
+        val aobPatches = mutableListOf<ArtemisAobPatch>()
         val unsupported = linkedSetOf<String>()
 
         lines.drop(codeStart).forEach { line ->
@@ -243,14 +245,29 @@ object ArtemisConverter {
                     )
                 }
 
+                aobReplaceRegex.matches(line) -> {
+                    val match = aobReplaceRegex.matchEntire(line) ?: return@forEach
+                    val searchPattern = match.groupValues[1].uppercase(Locale.US)
+                    val replacePattern = match.groupValues[2].uppercase(Locale.US)
+                    if (searchPattern.length == replacePattern.length && searchPattern.length % 2 == 0) {
+                        aobPatches += ArtemisAobPatch(searchPattern, replacePattern)
+                    } else {
+                        unsupported += "AoB search/replace pattern lengths do not match."
+                    }
+                }
+
                 firstToken(line).equals("B", ignoreCase = true) -> {
-                    unsupported += "AoB search/replace codes are risky until RPCSX Easy adds byte validation."
+                    unsupported += "Unsupported AoB search/replace code."
                 }
 
                 looksLikeCodeLine(line) -> {
                     unsupported += "Unsupported Artemis code type: ${firstToken(line)}"
                 }
             }
+        }
+
+        if (aobPatches.isNotEmpty()) {
+            unsupported += "AoB search/replace parsed, but needs native byte validation before install."
         }
 
         if (writes.isEmpty() && unsupported.isEmpty()) {
@@ -261,6 +278,7 @@ object ArtemisConverter {
             name = name,
             author = author,
             writes = writes,
+            aobPatches = aobPatches,
             unsupportedReasons = unsupported.toList()
         )
     }
@@ -326,64 +344,6 @@ object ArtemisConverter {
             }
         }.trimEnd()
     }
-
-    private fun discoverPpuHash(context: Context, game: Game, titleId: String): String? {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.getString(hashPrefKey(game, titleId), null)?.let { return it }
-
-        val root = rpcsxRoot(context)
-        val logs = listOf(
-            File(root, "cache/RPCSX.old.log"),
-            File(root, "cache/RPCSX.log")
-        )
-
-        var latestForTitle: String? = null
-        var latestAny: String? = null
-
-        logs.filter { it.exists() }.forEach { log ->
-            val text = runCatching { log.readText() }.getOrNull() ?: return@forEach
-            val parsed = discoverPpuHashFromLog(text, titleId)
-            latestForTitle = parsed.first ?: latestForTitle
-            latestAny = parsed.second ?: latestAny
-        }
-
-        return latestForTitle ?: if (
-            RPCSX.lastPlayedGame == game.info.path ||
-            RPCSX.activeGame.value == game.info.path
-        ) {
-            latestAny
-        } else {
-            null
-        }
-    }
-
-    private fun discoverPpuHashFromLog(text: String, titleId: String): Pair<String?, String?> {
-        var activeTitleId: String? = null
-        var latestForTitle: String? = null
-        var latestAny: String? = null
-
-        text.lineSequence().forEach { line ->
-            titleIdRegex.find(line)?.let { activeTitleId = it.value.uppercase(Locale.US) }
-            ppuHashRegex.find(line)?.let { match ->
-                val hash = match.groupValues[1]
-                latestAny = hash
-                if (activeTitleId == titleId.uppercase(Locale.US) || line.contains(titleId, ignoreCase = true)) {
-                    latestForTitle = hash
-                }
-            }
-        }
-
-        return latestForTitle to latestAny
-    }
-
-    private fun rememberPpuHash(context: Context, game: Game, titleId: String, hash: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
-            putString(hashPrefKey(game, titleId), hash)
-        }
-    }
-
-    private fun hashPrefKey(game: Game, titleId: String): String =
-        "ppu_hash:${titleId}:${game.info.path}"
 
     private fun writeGeneratedSection(
         file: File,

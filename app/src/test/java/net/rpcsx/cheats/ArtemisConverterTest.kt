@@ -31,7 +31,7 @@ class ArtemisConverterTest {
             AoB Patch
             0
             Unknown
-            B 00010000 04000000
+            B 0001000000010000 0400000004000000
             #
             Configurable Multiplier
             0
@@ -45,6 +45,8 @@ class ArtemisConverterTest {
         assertEquals(2, cheats.size)
         assertFalse(cheats[0].isSupported)
         assertFalse(cheats[1].isSupported)
+        assertEquals(1, cheats[0].aobPatches.size)
+        assertEquals("0001000000010000", cheats[0].aobPatches.first().searchPattern)
         assertEquals(0 to 2, ArtemisConverter.summarize(text))
     }
 }

@@ -73,6 +73,8 @@ import net.rpcsx.dialogs.AlertDialogQueue
 import net.rpcsx.utils.FileUtil
 import net.rpcsx.utils.RpcsxUpdater
 import net.rpcsx.utils.UiUpdater
+import net.rpcsx.cheats.CheatPatchStatus
+import net.rpcsx.cheats.PatchHashRepository
 import java.io.File
 
 private fun withAlpha(color: Color, alpha: Float): Color {
@@ -267,6 +269,7 @@ fun GameItem(game: Game, onOpenGameDetails: (Game) -> Unit) {
                 }
 
                 if (CheatRepository.hasCheats(game)) {
+                    val cheatPatchStatus = PatchHashRepository.cachedStatus(context, game).status
                     Row(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.End,
@@ -285,7 +288,7 @@ fun GameItem(game: Game, onOpenGameDetails: (Game) -> Unit) {
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(Modifier.width(4.dp))
-                                Text("Cheats")
+                                Text(if (cheatPatchStatus == CheatPatchStatus.Installed) "Patched" else "Cheats")
                             }
                         }
                     }

@@ -4,6 +4,9 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class TrimRisk {
     Safe,
@@ -18,6 +21,12 @@ data class TrimCandidate(
     val isDirectory: Boolean,
     val localFile: File? = null,
     val documentUri: Uri? = null
+)
+
+data class TrimApplyResult(
+    val backedUp: Int,
+    val deleted: Int,
+    val backupPath: String?
 )
 
 object TrimAnalyzer {
@@ -89,13 +98,17 @@ object TrimAnalyzer {
         return candidates.sortedWith(compareBy<TrimCandidate> { it.risk }.thenByDescending { it.size })
     }
 
-    fun apply(context: Context, candidates: List<TrimCandidate>): Int {
+    fun apply(context: Context, candidates: List<TrimCandidate>): TrimApplyResult {
+        var backupRoot: File? = null
+        var backedUp = 0
         var deleted = 0
         candidates.forEach { candidate ->
             val localFile = candidate.localFile
             if (localFile != null && localFile.exists()) {
-                if (localFile.deleteRecursively()) {
-                    deleted++
+                val root = backupRoot ?: createBackupRoot(context).also { backupRoot = it }
+                val target = backupTarget(root, candidate.displayPath)
+                if (moveToBackup(localFile, target)) {
+                    backedUp++
                 }
                 return@forEach
             }
@@ -107,7 +120,11 @@ object TrimAnalyzer {
             }
         }
 
-        return deleted
+        return TrimApplyResult(
+            backedUp = backedUp,
+            deleted = deleted,
+            backupPath = backupRoot?.takeIf { backedUp > 0 }?.absolutePath
+        )
     }
 
     fun formatSize(size: Long): String {
@@ -193,5 +210,36 @@ object TrimAnalyzer {
         }
 
         return file.listFiles().sumOf { documentSize(it) }
+    }
+
+    private fun createBackupRoot(context: Context): File {
+        val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
+        val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        return File(baseDir, "trim_backups/$timestamp").apply { mkdirs() }
+    }
+
+    private fun backupTarget(root: File, displayPath: String): File {
+        val safePath = displayPath
+            .split('/', '\\')
+            .filter { it.isNotBlank() && it != "." && it != ".." }
+            .joinToString(File.separator)
+        return File(root, safePath.ifBlank { "item" })
+    }
+
+    private fun moveToBackup(source: File, target: File): Boolean {
+        target.parentFile?.mkdirs()
+        if (source.renameTo(target)) {
+            return true
+        }
+
+        return runCatching {
+            if (source.isDirectory) {
+                source.copyRecursively(target, overwrite = true)
+                source.deleteRecursively()
+            } else {
+                source.copyTo(target, overwrite = true)
+                source.delete()
+            }
+        }.getOrDefault(false)
     }
 }
