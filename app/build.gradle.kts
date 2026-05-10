@@ -7,8 +7,10 @@ plugins {
 }
 
 val buildBundledRpcsxCore =
-    providers.gradleProperty("buildBundledRpcsxCore").orNull == "true" ||
-        System.getenv("RPCSX_BUILD_BUNDLED_CORE") == "1"
+    when (providers.gradleProperty("buildBundledRpcsxCore").orNull ?: System.getenv("RPCSX_BUILD_BUNDLED_CORE")) {
+        "0", "false", "False", "FALSE", "off", "Off", "OFF" -> false
+        else -> true
+    }
 
 android {
     namespace = "net.rpcsx"

@@ -133,16 +133,19 @@ Debug APK output:
 .\gradlew.bat :app:assembleDebug
 ```
 
-The default Gradle app build builds the Android JNI wrapper at `app/src/main/cpp/CMakeLists.txt`. The vendored upstream core source is available at `app/src/main/cpp/rpcsx`, with its Android CMake entry at `app/src/main/cpp/rpcsx/android/CMakeLists.txt`.
+The default Gradle app build builds the Android JNI wrapper and bundles this fork's source-built RPCSX core into the APK. The vendored upstream core source is available at `app/src/main/cpp/rpcsx`, with its Android CMake entry at `app/src/main/cpp/rpcsx/android/CMakeLists.txt`.
 
-Source-core packaging uses pinned RPCSX third-party submodules. Hydrate them once, then build:
+Source-core packaging uses pinned RPCSX third-party submodules. Hydrate them once before the first build:
 
 ```powershell
 .\tools\hydrate_rpcsx_core_deps.ps1
-.\gradlew.bat :app:assembleDebug -PbuildBundledRpcsxCore=true
 ```
 
-The default build leaves the source core off for faster app/UI iteration. The bundled-core build is the one that carries local native RPCSX Home Menu/core changes into the APK.
+For faster app/UI-only iteration without rebuilding or packaging the core, opt out explicitly:
+
+```powershell
+.\gradlew.bat :app:assembleDebug -PbuildBundledRpcsxCore=false
+```
 
 Expected debug APK name:
 

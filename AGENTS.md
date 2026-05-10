@@ -19,11 +19,11 @@
 - Refresh the core source with `tools/sync_rpcsx_core.ps1` from the Android repo root; keep local Thor experiment changes in this repo.
 - Hydrate core dependencies with `tools/hydrate_rpcsx_core_deps.ps1`. On Windows, keep `git config core.longpaths true` because SPIRV-Cross and LLVM contain long test/reference paths.
 - Do not commit generated native build output, downloaded prebuilt tarballs, APKs, `.cxx`, Gradle caches, or runtime PPU/SPU caches.
-- The default Gradle app build still uses `app/src/main/cpp/CMakeLists.txt` for the lightweight Android JNI wrapper. The vendored full core Android build entry is `app/src/main/cpp/rpcsx/android/CMakeLists.txt`.
+- The default Gradle app build uses `app/src/main/cpp/CMakeLists.txt` for the Android JNI wrapper and now bundles the vendored full core by default. The full core Android build entry is `app/src/main/cpp/rpcsx/android/CMakeLists.txt`.
 - Java loads the wrapper as `librpcsx-ui-jni.so`. A source-built/bundled core should package as `librpcsx-android.so`, and `MainActivity` will use it when no custom/downloaded core path is configured.
 - In this fork, `MainActivity` also prefers a valid bundled `librpcsx-android.so` over stale updater-downloaded cores named `librpcsx-android_*`. This keeps old installed core prefs from hiding local source-core changes on Thor.
-- Build source-core packaging with `RPCSX_BUILD_BUNDLED_CORE=1` or `-PbuildBundledRpcsxCore=true`.
-- Current source-core status on 2026-05-10: `.\gradlew.bat ':app:configureCMakeDebug[arm64-v8a]' -PbuildBundledRpcsxCore=true` succeeds, and `.\gradlew.bat :app:assembleDebug -PbuildBundledRpcsxCore=true` succeeds after dependency hydration. The bundled debug APK includes `lib/arm64-v8a/librpcsx-android.so` plus `librpcsx-ui-jni.so`; the source-core build is slow and noisy with upstream warnings.
+- Build source-core packaging with the normal `.\gradlew.bat :app:assembleDebug` after dependency hydration. For fast UI-only iteration, opt out with `-PbuildBundledRpcsxCore=false` or `RPCSX_BUILD_BUNDLED_CORE=0`.
+- Current source-core status on 2026-05-10: `.\gradlew.bat ':app:configureCMakeDebug[arm64-v8a]'` succeeds, and `.\gradlew.bat :app:assembleDebug` succeeds after dependency hydration. The bundled debug APK includes `lib/arm64-v8a/librpcsx-android.so` plus `librpcsx-ui-jni.so`; the source-core build is slow and noisy with upstream warnings.
 - Treat core changes as first-class repo changes: edit the vendored files directly, test where possible, then commit and push on `master`.
 
 ## Local Build Environment
@@ -46,7 +46,7 @@ Useful verification commands:
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:assembleDebug
 .\tools\hydrate_rpcsx_core_deps.ps1
-.\gradlew.bat :app:assembleDebug -PbuildBundledRpcsxCore=true
+.\gradlew.bat :app:assembleDebug -PbuildBundledRpcsxCore=false
 ```
 
 ## Device Testing
