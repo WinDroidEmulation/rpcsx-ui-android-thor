@@ -76,6 +76,8 @@ object ArtemisConverter {
         game: Game,
         entries: List<CheatEntry>
     ): ArtemisInstallResult = withContext(Dispatchers.IO) {
+        val readyEntries = entries.filter { it.format == CheatRepository.FORMAT_RPCS3_PATCH }
+        val artemisEntries = entries.filter { it.format != CheatRepository.FORMAT_RPCS3_PATCH }
         val titleId = GameIdentity.primaryTitleId(game)
             ?: entries.flatMap { it.titleIds }.firstOrNull()
 
@@ -130,8 +132,13 @@ object ArtemisConverter {
             )
         }
 
-        val ppuHash = PatchHashRepository.requirePpuHash(context, game, titleId)
-        if (ppuHash == null) {
+        val readyPreview = buildReadyPatchPreview(readyEntries)
+        val ppuHash = if (artemisEntries.isNotEmpty()) {
+            PatchHashRepository.requirePpuHash(context, game, titleId)
+        } else {
+            null
+        }
+        if (artemisEntries.isNotEmpty() && ppuHash == null && readyPreview.installedCheats == 0) {
             return@withContext ArtemisInstallResult(
                 titleId = titleId,
                 patchHash = null,
@@ -149,45 +156,61 @@ object ArtemisConverter {
         val gameTitle = game.info.name.value
             ?: entries.firstOrNull()?.title
             ?: titleId
-        val entryTexts = entries.map { entry -> entry to CheatRepository.getCheatText(context, entry) }
-        val preview = buildPatchPreview(
-            entries = entryTexts,
-            titleId = titleId,
-            ppuHash = ppuHash,
-            gameTitle = gameTitle
-        )
+        val artemisPreview = if (artemisEntries.isNotEmpty() && ppuHash != null) {
+            val entryTexts = artemisEntries.map { entry -> entry to CheatRepository.getCheatText(context, entry) }
+            buildPatchPreview(
+                entries = entryTexts,
+                titleId = titleId,
+                ppuHash = ppuHash,
+                gameTitle = gameTitle
+            )
+        } else {
+            ArtemisPatchPreview("", "", 0, artemisEntries.size, 0)
+        }
+
+        val patchBody = listOf(readyPreview.patchBody, artemisPreview.patchBody)
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
+        val configBody = listOf(readyPreview.configBody, artemisPreview.configBody)
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
 
         backups += writeGeneratedSection(
             file = patchFile,
             startMarker = PATCH_SECTION_START,
             endMarker = PATCH_SECTION_END,
-            body = preview.patchBody,
+            body = patchBody,
             prefixIfCreated = "Version: $PATCH_VERSION\n\n"
         )
         backups += writeGeneratedSection(
             file = configFile,
             startMarker = CONFIG_SECTION_START,
             endMarker = CONFIG_SECTION_END,
-            body = preview.configBody,
+            body = configBody,
             prefixIfCreated = ""
         )
 
-        val message = if (preview.installedCheats == 0) {
+        val installedCheats = readyPreview.installedCheats + artemisPreview.installedCheats
+        val skippedCheats = readyPreview.skippedCheats + artemisPreview.skippedCheats
+        val installedWrites = readyPreview.installedWrites + artemisPreview.installedWrites
+        val message = if (installedCheats == 0) {
             "No fixed-write Artemis cheats were installable for $titleId. Risky AoB/configurable codes were skipped."
+        } else if (artemisEntries.isNotEmpty() && ppuHash == null) {
+            "Installed ${readyPreview.installedCheats} RPCS3-ready cheats for next boot. Boot $titleId once to learn the PPU hash before converting ${artemisEntries.size} Artemis entries."
         } else {
-            "Installed ${preview.installedCheats} Artemis cheats (${preview.installedWrites} writes) for next boot. Skipped ${preview.skippedCheats} risky or unsupported cheats."
+            "Installed $installedCheats cheats ($installedWrites patch ops) for next boot. Skipped $skippedCheats risky or unsupported cheats."
         }
 
         ArtemisInstallResult(
             titleId = titleId,
-            patchHash = ppuHash,
-            installedCheats = preview.installedCheats,
-            skippedCheats = preview.skippedCheats,
-            installedWrites = preview.installedWrites,
+            patchHash = ppuHash ?: readyEntries.firstOrNull()?.patchHash,
+            installedCheats = installedCheats,
+            skippedCheats = skippedCheats,
+            installedWrites = installedWrites,
             patchFilePath = patchFile.absolutePath,
             configFilePath = configFile.absolutePath,
             backupPaths = backups,
-            missingHash = false,
+            missingHash = artemisEntries.isNotEmpty() && ppuHash == null,
             message = message
         )
     }
@@ -237,6 +260,44 @@ object ArtemisConverter {
             skippedCheats = skippedCheats,
             installedWrites = patchItems.sumOf { it.cheat.writes.size }
         )
+    }
+
+    internal fun buildReadyPatchPreview(entries: List<CheatEntry>): ArtemisPatchPreview {
+        return ArtemisPatchPreview(
+            patchBody = mergeReadyYaml(entries.mapNotNull { it.readyPatchBody?.takeIf(String::isNotBlank) }),
+            configBody = mergeReadyYaml(entries.mapNotNull { it.readyConfigBody?.takeIf(String::isNotBlank) }),
+            installedCheats = entries.count { !it.readyPatchBody.isNullOrBlank() },
+            skippedCheats = entries.count { it.readyPatchBody.isNullOrBlank() },
+            installedWrites = entries.sumOf { countPatchOps(it.readyPatchBody) }
+        )
+    }
+
+    private fun mergeReadyYaml(bodies: List<String>): String {
+        val groupedBodies = linkedMapOf<String, MutableList<String>>()
+        bodies.forEach { body ->
+            val lines = body.trim().lines()
+            val hashKey = lines.firstOrNull()
+                ?.trim()
+                ?.removeSuffix(":")
+                ?.takeIf { it.isNotBlank() }
+                ?: return@forEach
+            val childBody = lines.drop(1).joinToString("\n").trimEnd()
+            if (childBody.isNotBlank()) {
+                groupedBodies.getOrPut(hashKey) { mutableListOf() } += childBody
+            }
+        }
+
+        return groupedBodies.entries.joinToString("\n\n") { (hashKey, children) ->
+            "$hashKey:\n${children.joinToString("\n")}"
+        }
+    }
+
+    private fun countPatchOps(patchBody: String?): Int {
+        if (patchBody.isNullOrBlank()) {
+            return 0
+        }
+
+        return patchBody.lineSequence().count { it.trimStart().startsWith("- [") }
     }
 
     private fun parseBlock(rawBlock: String): ArtemisCheat? {

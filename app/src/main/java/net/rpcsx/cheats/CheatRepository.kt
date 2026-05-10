@@ -1,6 +1,8 @@
 package net.rpcsx.cheats
 
 import android.content.Context
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.Dispatchers
@@ -25,14 +27,22 @@ data class CheatEntry(
     val sourceName: String? = null,
     val assetName: String? = null,
     val convertibleCount: Int? = null,
-    val riskyCount: Int? = null
+    val riskyCount: Int? = null,
+    val format: String = "artemis_ncl",
+    val patchHash: String? = null,
+    val readyPatchBody: String? = null,
+    val readyConfigBody: String? = null
 )
 
 object CheatRepository {
+    const val FORMAT_ARTEMIS_NCL = "artemis_ncl"
+    const val FORMAT_RPCS3_PATCH = "rpcs3_patch"
+
     private const val CODELIST_URL = "http://ps3.aldostools.org/codelist.html"
     private const val RAW_CODELIST_BASE =
         "https://raw.githubusercontent.com/aldostools/webMAN-MOD/master/_Projects_/codelists/"
     private const val BUNDLED_INDEX_ASSET = "cheats/aldos_index.json"
+    private const val BUNDLED_DB_ASSET = "cheats/cheats.db"
 
     val entries = mutableStateListOf<CheatEntry>()
     val isLoading = mutableStateOf(false)
@@ -51,7 +61,7 @@ object CheatRepository {
         withContext(Dispatchers.IO) {
             try {
                 val cache = indexCacheFile(context)
-                val bundled = if (!forceRefresh) bundledIndex(context) else null
+                val bundled = if (!forceRefresh) bundledDatabase(context) ?: bundledIndex(context) else null
                 val parsed = if (bundled != null) {
                     bundled
                 } else if (!forceRefresh && cache.exists()) {
@@ -118,6 +128,8 @@ object CheatRepository {
         return entries.filter {
             it.title.lowercase().contains(needle) ||
                 it.version.lowercase().contains(needle) ||
+                it.fileName.lowercase().contains(needle) ||
+                it.sourceName.orEmpty().lowercase().contains(needle) ||
                 it.titleIds.any { id -> id.lowercase().contains(needle) }
         }
     }
@@ -125,6 +137,12 @@ object CheatRepository {
     fun hasCheats(game: Game): Boolean = matches(game).isNotEmpty()
 
     suspend fun getCheatText(context: Context, entry: CheatEntry): String = withContext(Dispatchers.IO) {
+        if (entry.format == FORMAT_RPCS3_PATCH) {
+            return@withContext entry.readyPatchBody
+                ?: bundledPatchText(context, entry)
+                ?: "RPCS3-ready patch metadata is missing for ${entry.fileName}."
+        }
+
         val cache = cheatCacheFile(context, entry)
         if (cache.exists()) {
             return@withContext cache.readText()
@@ -146,7 +164,11 @@ object CheatRepository {
     }
 
     fun sourceUrl(entry: CheatEntry): String =
-        RAW_CODELIST_BASE + encodePathSegment(entry.sourceName ?: entry.fileName) + ".ncl"
+        if (entry.format == FORMAT_RPCS3_PATCH) {
+            "https://www.reddit.com/r/darkchidreams/"
+        } else {
+            RAW_CODELIST_BASE + encodePathSegment(entry.sourceName ?: entry.fileName) + ".ncl"
+        }
 
     private fun parseIndex(html: String): List<CheatEntry> {
         val rowRegex = Regex("<tr><td>(.*?)<td>(.*?)<td>(.*?)<td>(.*?)</tr>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
@@ -202,11 +224,94 @@ object CheatRepository {
         return json.decodeFromString(ListSerializer(CheatEntry.serializer()), text)
     }
 
+    private fun bundledDatabase(context: Context): List<CheatEntry>? {
+        val dbFile = bundledDatabaseFile(context) ?: return null
+        return runCatching {
+            SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                db.rawQuery(
+                    """
+                    SELECT
+                        cg.id,
+                        cg.name,
+                        g.version,
+                        cg.size,
+                        cg.file_name,
+                        cg.source_name,
+                        cg.asset_name,
+                        cg.convertible_count,
+                        cg.risky_count,
+                        cg.format,
+                        p.hash,
+                        CASE WHEN cg.format = ? THEN p.raw_yaml ELSE NULL END,
+                        CASE WHEN cg.format = ? THEN p.config_yaml ELSE NULL END,
+                        group_concat(gti.title_id, ',')
+                    FROM cheat_groups cg
+                    LEFT JOIN games g ON g.id = cg.game_id
+                    LEFT JOIN cheats c ON c.group_id = cg.id
+                    LEFT JOIN patches p ON p.cheat_id = c.id
+                    LEFT JOIN cheat_group_title_ids gti ON gti.group_id = cg.id
+                    GROUP BY cg.id, p.id
+                    ORDER BY cg.name COLLATE NOCASE, cg.file_name COLLATE NOCASE
+                    """.trimIndent(),
+                    arrayOf(FORMAT_RPCS3_PATCH, FORMAT_RPCS3_PATCH)
+                ).use { cursor ->
+                    buildList {
+                        while (cursor.moveToNext()) {
+                            val titleIds = cursor.stringOrNull(13)
+                                ?.split(',')
+                                ?.filter { it.isNotBlank() }
+                                ?.distinct()
+                                .orEmpty()
+                            add(
+                                CheatEntry(
+                                    titleIds = titleIds,
+                                    title = cursor.stringOrNull(1).orEmpty(),
+                                    version = cursor.stringOrNull(2).orEmpty(),
+                                    size = cursor.stringOrNull(3).orEmpty(),
+                                    fileName = cursor.stringOrNull(4).orEmpty(),
+                                    sourceName = cursor.stringOrNull(5),
+                                    assetName = cursor.stringOrNull(6),
+                                    convertibleCount = cursor.getIntOrNull(7),
+                                    riskyCount = cursor.getIntOrNull(8),
+                                    format = cursor.stringOrNull(9).orEmpty().ifBlank { FORMAT_ARTEMIS_NCL },
+                                    patchHash = cursor.stringOrNull(10),
+                                    readyPatchBody = cursor.stringOrNull(11),
+                                    readyConfigBody = cursor.stringOrNull(12)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    private fun bundledDatabaseFile(context: Context): File? {
+        val target = File(cacheDir(context), "cheats-v2.db")
+        return runCatching {
+            context.assets.open(BUNDLED_DB_ASSET).use { input ->
+                val expectedSize = input.available().toLong()
+                if (!target.exists() || target.length() != expectedSize) {
+                    target.parentFile?.mkdirs()
+                    target.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            target
+        }.getOrNull()
+    }
+
     private fun bundledCheatText(context: Context, entry: CheatEntry): String? {
         val assetName = entry.assetName
             ?: bundledIndex(context)?.firstOrNull { it.fileName == entry.fileName }?.assetName
             ?: return null
         return readAsset(context, "cheats/ncl/$assetName")
+    }
+
+    private fun bundledPatchText(context: Context, entry: CheatEntry): String? {
+        val assetName = entry.assetName ?: return null
+        return readAsset(context, "cheats/$assetName")
     }
 
     private fun readAsset(context: Context, path: String): String? {
@@ -224,4 +329,10 @@ object CheatRepository {
 
         return File(root, "cheats")
     }
+
+    private fun Cursor.stringOrNull(index: Int): String? =
+        if (isNull(index)) null else getString(index)
+
+    private fun Cursor.getIntOrNull(index: Int): Int? =
+        if (isNull(index)) null else getInt(index)
 }

@@ -318,7 +318,7 @@ private fun CheatInstallCard(
             ) {
                 Icon(painter = painterResource(id = R.drawable.ic_star), contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Install All Fixed")
+                Text("Install All Safe")
             }
             TextButton(
                 onClick = onClear,
@@ -375,10 +375,18 @@ private fun CheatEntryCard(
                 )
                 if (entry.convertibleCount != null && entry.riskyCount != null) {
                     Text(
-                        "${entry.convertibleCount} fixed, ${entry.riskyCount} risky",
+                        "${entry.convertibleCount} safe, ${entry.riskyCount} risky",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+                Text(
+                    if (entry.format == CheatRepository.FORMAT_RPCS3_PATCH) {
+                        "RPCS3-ready patch"
+                    } else {
+                        "Artemis NCL"
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             TextButton(onClick = onOpen) {
                 Text("View")
@@ -402,15 +410,29 @@ private fun CheatPreview(
             if (text == null && error == null) {
                 CircularProgressIndicator()
             } else if (text != null) {
-                val summary = ArtemisConverter.summarize(text)
+                val summary = if (entry.format == CheatRepository.FORMAT_RPCS3_PATCH) {
+                    (entry.convertibleCount ?: 1) to (entry.riskyCount ?: 0)
+                } else {
+                    ArtemisConverter.summarize(text)
+                }
                 Text(
-                    "${summary.first} fixed-write cheats convertible, ${summary.second} risky/unsupported skipped.",
+                    if (entry.format == CheatRepository.FORMAT_RPCS3_PATCH) {
+                        "${summary.first} RPCS3-ready patches, ${summary.second} risky/unsupported."
+                    } else {
+                        "${summary.first} fixed-write cheats convertible, ${summary.second} risky/unsupported skipped."
+                    },
                     style = MaterialTheme.typography.bodySmall
                 )
                 Button(onClick = onCopy) {
                     Icon(painter = painterResource(id = R.drawable.ic_description), contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Copy NCL")
+                    Text(
+                        if (entry.format == CheatRepository.FORMAT_RPCS3_PATCH) {
+                            "Copy Patch"
+                        } else {
+                            "Copy NCL"
+                        }
+                    )
                 }
                 SelectionContainer {
                     Text(text, style = MaterialTheme.typography.bodySmall)

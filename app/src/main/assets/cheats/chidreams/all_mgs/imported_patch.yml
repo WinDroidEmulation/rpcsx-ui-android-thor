@@ -1,0 +1,354 @@
+Version: 1.2
+Anchors:
+  MGS_3HD: &MGS_3HD
+      - [ be32,0x001598E4,0x386003E8]
+      - [ be32,0x00159A90,0x386003E8]
+  MGS_3HD1: &MGS_3HD1
+      - [ be32,0x0011F0F4,0x39260000]
+  MGS_3HD2: &MGS_3HD2
+      - [ byte,0x0070ECB5,0x40]  
+  MGS_3HD3: &MGS_3HD3
+      - [ be32,0x0011F0BC,0x392A0000]
+  MGS_3HD4: &MGS_3HD4
+      - [ be32,0x0011F310,0x7D044378]
+      - [ be32,0x001BE38C,0x39630000]  
+  MGS_3HD5: &MGS_3HD5
+      - [ be32,0x00138A54,0x7D495378]
+      - [ be32,0x001592CC,0x7CC53378]
+      - [ be32,0x001B2F70,0x7EC5B378]
+      - [ be32,0x001B300C,0x7F8AE378]
+      - [ be32,0x001B3044,0x7D966378]
+  MGS_3HD6: &MGS_3HD6
+      - [ be32,0x0015984C,0x7C0C0378]
+  MGS_3HD7: &MGS_3HD7
+      - [ be32,0x001B2778,0x7D966378]
+      - [ be32,0x00135858,0x7CC43378]
+      - [ be32,0x00138BC4,0xA07D0002]
+      - [ be32,0x00138C14,0xA0EA0002]
+  MGS_2HD: &MGS_2HD
+      - [ be32,0x005C541C,0x2C0603E8]
+      - [ be32,0x005C5424,0x38C003E8]
+  MGS_2HD1: &MGS_2HD1
+      - [ be32,0x00145530,0x60000000]
+  MGS_2HD2: &MGS_2HD2
+      - [ be32,0x003FF490,0x30630000]
+      - [ be32,0x0014D294,0x60000000]
+      - [ be32,0x0014D2A4,0x60000000]
+      - [ be32,0x0014D2A8,0x30840000]
+      - [ be32,0x0014D2B4,0x60000000]
+      - [ be32,0x0014D2BC,0x60000000]
+      - [ be32,0x0014D3AC,0xB3BF0088]
+      - [ be32,0x0014D3C0,0x60000000]
+      - [ be32,0x0014D3B0,0x60000000]
+  MGS_2HD3: &MGS_2HD3
+      - [ be32,0x00143460,0x60000000]
+  MGS_2SON2: &MGS_2SON2
+    - [ byte,0x0081198D,0x00]
+  MGS_2SON23: &MGS_2SON23
+    - [ byte,0x005593A2,0x40]
+  MGS_2SON24: &MGS_2SON24 
+    - [ byte,0x00819D8B,0x00]
+  MGS_2SON25: &MGS_2SON25 
+    - [ be32,0x008F7170,0x386003E8]
+  MGS_2SON26: &MGS_2SON26 
+    - [ be32,0x007B59F8,0x38640000]
+  MGS_2SON27: &MGS_2SON27 
+    - [ be32,0x007EF810,0x396000C8]
+  MGS_2SON28: &MGS_2SON28 
+    - [ be32,0x002FE488,0x39200000]
+    - [ be32,0x008F5924,0x38000000]
+    - [ be32,0x008F5184,0x39800000]
+    - [ be32,0x00523720,0x38000000]
+    - [ be32,0x0052376C,0x38000000]
+  MGS_2SON29: &MGS_2SON29
+    - [ be32,0x00D20C00,0x3D200150]
+    - [ be32,0x00D20C04,0x6129EC00]
+    - [ be32,0x00D20C08,0xA0090092]
+    - [ be32,0x00D20C0C,0x2C000200]
+    - [ be32,0x00D20C10,0x4182002C]
+    - [ be32,0x00D20C14,0x2C00000C]
+    - [ be32,0x00D20C18,0x41820044]
+    - [ be32,0x00D20C1C,0x2C000400]
+    - [ be32,0x00D20C20,0x41820054]
+    - [ be32,0x00D20C24,0x2C000003]
+    - [ be32,0x00D20C28,0x41820060]
+    - [ be32,0x00D20C2C,0x88090000]
+    - [ be32,0x00D20C30,0x2C000001]
+    - [ be32,0x00D20C34,0x41820008]
+    - [ be32,0x00D20C38,0x48000060]
+    - [ be32,0x00D20C3C,0x38000001]
+    - [ be32,0x00D20C40,0x98090000]
+    - [ be32,0x00D20C44,0x88090001]
+    - [ be32,0x00D20C48,0x2C000001]
+    - [ be32,0x00D20C4C,0x8122EB84]
+    - [ be32,0x00D20C50,0x38000040]
+    - [ be32,0x00D20C54,0x98090000]
+    - [ be32,0x00D20C58,0x40820040]
+    - [ be32,0x00D20C5C,0x38000001]
+    - [ be32,0x00D20C60,0x98090001]
+    - [ be32,0x00D20C64,0x8122EB84]
+    - [ be32,0x00D20C68,0x3800008B]
+    - [ be32,0x00D20C6C,0x98090001]
+    - [ be32,0x00D20C70,0x48000028]
+    - [ be32,0x00D20C74,0x38000000]
+    - [ be32,0x00D20C78,0x98090000]
+    - [ be32,0x00D20C7C,0x8122EB84]
+    - [ be32,0x00D20C80,0x98090000]
+    - [ be32,0x00D20C84,0x48000014]
+    - [ be32,0x00D20C88,0x38000000]
+    - [ be32,0x00D20C8C,0x98090001]
+    - [ be32,0x00D20C90,0x8122EB84]
+    - [ be32,0x00D20C94,0x98090001]
+    - [ be32,0x00D20C98,0x8122EB84]
+    - [ be32,0x00D20C9C,0x4BA95ED8]
+    - [ be32,0x007B6B70,0x4856A090]
+  MGS_2SON210: &MGS_2SON210   
+    - [ be32,0x002BD074,0x388003E8]
+  MGS_2SON211: &MGS_2SON211
+    - [ be32,0x007D7954,0x60000000]
+    - [ be32,0x007E9558,0x60000000]
+  MGS_2SON212: &MGS_2SON212
+    - [ be32,0x00649160,0x393A0000]
+  MGS_2SON213: &MGS_2SON213
+    - [ be32,0x000862E0,0x398003E8]
+    - [ be32,0x00788984,0x60000000] 
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Rapid Fire%":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON2 ] 
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Alert Disable":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: not working (just Place holder)
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON23 ] 
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Invincible Mode":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON24 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Infinite Ammo":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON25 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "No Reload":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+     - [ load,  *MGS_2SON26 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Infinite Health":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON27 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Low Time, No Continues + Kills + Alerts":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON28 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Invincible + Stealth Toggle":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: Invincible On = L1 + R1 Invincibile Off = L2 + R2 Stealth On = L3 Stealth Off = R3
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON29 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Infinite Snake Health (Partner)":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON210 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "No Trembling While Sniping":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON211 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Infinite Nikita Missile Time":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON212 ]
+PPU-7e14606bae09af2123b1e2e266f5e63bb22f9cb2:
+  "Infinite Emma Health + O2":
+    Games:
+      "Metal Gear Solid 2 Sons Of Liberty":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2SON213 ]
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "100% Camo":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD ]
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "Infinite Ammo":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD1 ]
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "Alert Disable":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD2 ]
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "No Reload":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD3 ]
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "Infinite Silencer":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD4 ]      
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "Infinite Stamina":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD5 ]   
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "Infinite Battery":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD6 ]   
+PPU-005f6599b156cb3d45684919599793ee79456208:
+  "Infinite Health":
+    Games:
+      "Metal Gear Solid 3 - HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_3HD7 ]   
+PPU-524a4f8415cf09e170e2cc48d4d031cd30c3d669:
+  "Camouflage 100%":
+    Games:
+      "Metal Gear Solid Peace Walker HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2HD ]  
+PPU-524a4f8415cf09e170e2cc48d4d031cd30c3d669:
+  "ASM Infinite Equipment":
+    Games:
+      "Metal Gear Solid Peace Walker HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2HD1 ] 
+PPU-524a4f8415cf09e170e2cc48d4d031cd30c3d669:
+  "ASM No Reload":
+    Games:
+      "Metal Gear Solid Peace Walker HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2HD2 ] 
+PPU-524a4f8415cf09e170e2cc48d4d031cd30c3d669:
+  "ASM Infinite Items":
+    Games:
+      "Metal Gear Solid Peace Walker HD Edition":
+        BLUS30847: [ 01.03]
+    Author: 
+    Notes: 
+    Patch Version: 1.0
+    Patch:
+      - [ load, *MGS_2HD3 ]      

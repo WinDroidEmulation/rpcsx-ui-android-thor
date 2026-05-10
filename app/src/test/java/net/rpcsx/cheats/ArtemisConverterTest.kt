@@ -89,4 +89,67 @@ class ArtemisConverterTest {
             preview.configBody
         )
     }
+
+    @Test
+    fun mergeReadyRpcS3PatchesUnderSharedHash() {
+        val entries = listOf(
+            readyEntry(
+                "Infinite Health",
+                """
+                PPU-abc:
+                  "Infinite Health":
+                    Patch:
+                      - [ be32, 0x1000, 0x60000000 ]
+                """.trimIndent(),
+                """
+                PPU-abc:
+                  "Infinite Health":
+                    "Game":
+                      BLUS00000:
+                        "01.00":
+                          Enabled: true
+                """.trimIndent()
+            ),
+            readyEntry(
+                "Infinite Ammo",
+                """
+                PPU-abc:
+                  "Infinite Ammo":
+                    Patch:
+                      - [ be32, 0x1004, 0x60000000 ]
+                """.trimIndent(),
+                """
+                PPU-abc:
+                  "Infinite Ammo":
+                    "Game":
+                      BLUS00000:
+                        "01.00":
+                          Enabled: true
+                """.trimIndent()
+            )
+        )
+
+        val preview = ArtemisConverter.buildReadyPatchPreview(entries)
+
+        assertEquals(2, preview.installedCheats)
+        assertEquals(2, preview.installedWrites)
+        assertEquals(1, Regex("^PPU-abc:", RegexOption.MULTILINE).findAll(preview.patchBody).count())
+        assertTrue(preview.patchBody.contains("\"Infinite Health\""))
+        assertTrue(preview.patchBody.contains("\"Infinite Ammo\""))
+        assertEquals(1, Regex("^PPU-abc:", RegexOption.MULTILINE).findAll(preview.configBody).count())
+    }
+
+    private fun readyEntry(name: String, patchBody: String, configBody: String): CheatEntry =
+        CheatEntry(
+            titleIds = listOf("BLUS00000"),
+            title = name,
+            version = "01.00",
+            size = "1 patch op",
+            fileName = name,
+            sourceName = "Test",
+            format = CheatRepository.FORMAT_RPCS3_PATCH,
+            patchHash = "PPU-abc",
+            readyPatchBody = patchBody,
+            readyConfigBody = configBody
+        )
 }

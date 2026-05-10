@@ -3,10 +3,19 @@ Bundled AldosTools / Artemis PS3 cheat database snapshot.
 Generated from:
 - http://ps3.aldostools.org/codelist.html
 - https://raw.githubusercontent.com/aldostools/webMAN-MOD/master/_Projects_/codelists/<file>.ncl
+- Chidreams / darkchidreams public RPCS3 imported_patch.yml links:
+  - https://drive.google.com/drive/folders/1Zm8xK8Pypp7T6r8LYE2lHdfxeBotaPXy
+  - https://drive.google.com/file/d/1XjRBRqqq6OvTQgfK5SviusmpGJP17bai
 
 The online codelist states that these codes are mirrored from the community
 Artemis code list repository maintained by bucanero.
 
+SQLite DB:
+- app/src/main/assets/cheats/cheats.db
+- Schema generator: tools/build_cheat_db.py
+- Aldos/Artemis entries: 2501
+- Chidreams RPCS3-ready patch entries: 28
+
 Generated at: 2026-05-09T22:34:12Z
-Entries: 2501
+Entries: 2529
 Failed downloads: 0

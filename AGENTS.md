@@ -69,8 +69,11 @@ If the app does not appear, verify the installed package:
 - Support offline single-player cheats only.
 - Do not help bypass DRM, anti-cheat, or online/multiplayer protections.
 - Bundled Aldos/Artemis source lives under `app/src/main/assets/cheats`.
+- Bundled SQLite cheat database lives at `app/src/main/assets/cheats/cheats.db`; regenerate it with `python tools/build_cheat_db.py` after changing bundled NCL/imported patch assets.
+- Chidreams/RPCS3-ready imported patches live under `app/src/main/assets/cheats/chidreams` and are stored in `cheats.db` as `rpcs3_patch` entries.
 - Converted test fixtures live under `app/src/test/resources/cheats/converted`.
 - RPCSX/RPCS3 patches require a learned PPU hash; boot a game once, close it, then install fixed-write cheats.
+- RPCS3-ready `rpcs3_patch` entries already include PPU hashes and can be installed without the Artemis conversion step.
 - AoB cheats are parsed and counted as risky, but should not be installed until native byte validation/scanning exists.
 
 ## Current Cheat/Test Fixture
