@@ -21,6 +21,7 @@
 - Do not commit generated native build output, downloaded prebuilt tarballs, APKs, `.cxx`, Gradle caches, or runtime PPU/SPU caches.
 - The default Gradle app build still uses `app/src/main/cpp/CMakeLists.txt` for the lightweight Android JNI wrapper. The vendored full core Android build entry is `app/src/main/cpp/rpcsx/android/CMakeLists.txt`.
 - Java loads the wrapper as `librpcsx-ui-jni.so`. A source-built/bundled core should package as `librpcsx-android.so`, and `MainActivity` will use it when no custom/downloaded core path is configured.
+- In this fork, `MainActivity` also prefers a valid bundled `librpcsx-android.so` over stale updater-downloaded cores named `librpcsx-android_*`. This keeps old installed core prefs from hiding local source-core changes on Thor.
 - Build source-core packaging with `RPCSX_BUILD_BUNDLED_CORE=1` or `-PbuildBundledRpcsxCore=true`.
 - Current source-core status on 2026-05-10: `.\gradlew.bat ':app:configureCMakeDebug[arm64-v8a]' -PbuildBundledRpcsxCore=true` succeeds, and `.\gradlew.bat :app:assembleDebug -PbuildBundledRpcsxCore=true` succeeds after dependency hydration. The bundled debug APK includes `lib/arm64-v8a/librpcsx-android.so` plus `librpcsx-ui-jni.so`; the source-core build is slow and noisy with upstream warnings.
 - Treat core changes as first-class repo changes: edit the vendored files directly, test where possible, then commit and push on `master`.
