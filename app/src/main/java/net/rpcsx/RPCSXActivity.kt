@@ -137,7 +137,27 @@ class RPCSXActivity : Activity() {
         return event
     }
 
+    private fun isOsdKey(keyCode: Int): Boolean {
+        return keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_BUTTON_MODE
+    }
+
+    private fun openOsdMenu() {
+        RPCSX.instance.openHomeMenu()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        openOsdMenu()
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isOsdKey(keyCode)) {
+            if (event?.repeatCount == 0) {
+                openOsdMenu()
+            }
+            return true
+        }
+
         if (event == null || (event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_DPAD)) == 0 || event.repeatCount != 0) {
             return super.onKeyDown(keyCode, event)
         }
@@ -152,6 +172,10 @@ class RPCSXActivity : Activity() {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isOsdKey(keyCode)) {
+            return true
+        }
+
         if (event == null || event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_DPAD) == 0) {
             return super.onKeyUp(keyCode, event)
         }
