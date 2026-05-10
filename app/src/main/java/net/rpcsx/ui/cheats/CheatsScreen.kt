@@ -162,134 +162,143 @@ fun CheatsScreen(
             )
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .padding(padding)
                 .padding(12.dp)
                 .fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text("Search title, ID, or version") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+            item {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search title, ID, or version") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
 
             if (isGameRunning) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "This game is running. Cheat changes are staged for next boot until live patch toggles are wired into the native core.",
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "This game is running. Cheat changes are staged for next boot until live patch toggles are wired into the native core.",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
 
             if (CheatRepository.isLoading.value) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator()
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
                 }
             }
 
             CheatRepository.lastError.value?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
+                item {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
             }
 
-            if (game != null) {
-                CheatInstallCard(
-                    selectedCount = installEntries.size,
-                    matchedCount = gameEntries.size,
-                    patchStatus = patchStatus,
-                    isInstalling = isInstalling,
-                    result = installResult,
-                    error = installError,
-                    onApplySelected = {
-                        scope.launch {
-                            isInstalling = true
-                            installResult = null
-                            installError = null
-                            try {
-                                installResult = ArtemisConverter.installEntries(context, game, installEntries)
-                                patchStatus = PatchHashRepository.learnFromLogs(context, game)
-                            } catch (e: Exception) {
-                                installError = e.message ?: "Failed to install Artemis patches"
-                            } finally {
-                                isInstalling = false
-                            }
-                        }
-                    },
-                    onInstallAll = {
-                        scope.launch {
-                            isInstalling = true
-                            installResult = null
-                            installError = null
-                            try {
-                                installResult = ArtemisConverter.installEntries(context, game, gameEntries)
-                                patchStatus = PatchHashRepository.learnFromLogs(context, game)
-                            } catch (e: Exception) {
-                                installError = e.message ?: "Failed to install Artemis patches"
-                            } finally {
-                                isInstalling = false
-                            }
-                        }
-                    },
-                    onClear = {
-                        scope.launch {
-                            isInstalling = true
-                            installResult = null
-                            installError = null
-                            try {
-                                installResult = ArtemisConverter.installEntries(context, game, emptyList())
-                                patchStatus = PatchHashRepository.learnFromLogs(context, game)
-                            } catch (e: Exception) {
-                                installError = e.message ?: "Failed to clear Artemis patches"
-                            } finally {
-                                isInstalling = false
-                            }
-                        }
-                    }
+            item {
+                Text(
+                    "${baseEntries.size} ${if (game != null) "cheats" else "entries"}",
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
 
-            Text(
-                "${baseEntries.size} ${if (game != null) "cheats" else "entries"}",
-                style = MaterialTheme.typography.labelLarge
-            )
+            items(baseEntries, key = { entryKey(it) }) { entry ->
+                CheatEntryCard(
+                    entry = entry,
+                    enabled = CheatSelectionRepository.isEnabled(context, gameKey, entry),
+                    onEnabledChange = {
+                        CheatSelectionRepository.setEnabled(context, gameKey, entry, it)
+                        selectionNonce++
+                        installResult = null
+                        installError = null
+                    },
+                    onOpen = { selectedEntry = entry }
+                )
 
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(baseEntries, key = { entryKey(it) }) { entry ->
-                    CheatEntryCard(
+                if (selectedEntry?.let { entryKey(it) } == entryKey(entry)) {
+                    Spacer(Modifier.height(8.dp))
+                    CheatPreview(
                         entry = entry,
-                        enabled = CheatSelectionRepository.isEnabled(context, gameKey, entry),
-                        onEnabledChange = {
-                            CheatSelectionRepository.setEnabled(context, gameKey, entry, it)
-                            selectionNonce++
-                            installResult = null
-                            installError = null
-                        },
-                        onOpen = { selectedEntry = entry }
+                        text = selectedText,
+                        error = selectedError,
+                        onCopy = {
+                            val cheatText = selectedText ?: return@CheatPreview
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText(entry.fileName, cheatText))
+                            Toast.makeText(context, "Copied cheat text", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
+            }
 
+            if (game != null) {
                 item {
-                    selectedEntry?.let { entry ->
-                        CheatPreview(
-                            entry = entry,
-                            text = selectedText,
-                            error = selectedError,
-                            onCopy = {
-                                val cheatText = selectedText ?: return@CheatPreview
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText(entry.fileName, cheatText))
-                                Toast.makeText(context, "Copied cheat text", Toast.LENGTH_SHORT).show()
+                    CheatInstallCard(
+                        selectedCount = installEntries.size,
+                        matchedCount = gameEntries.size,
+                        patchStatus = patchStatus,
+                        isInstalling = isInstalling,
+                        result = installResult,
+                        error = installError,
+                        onApplySelected = {
+                            scope.launch {
+                                isInstalling = true
+                                installResult = null
+                                installError = null
+                                try {
+                                    installResult = ArtemisConverter.installEntries(context, game, installEntries)
+                                    patchStatus = PatchHashRepository.learnFromLogs(context, game)
+                                } catch (e: Exception) {
+                                    installError = e.message ?: "Failed to install Artemis patches"
+                                } finally {
+                                    isInstalling = false
+                                }
                             }
-                        )
-                    }
+                        },
+                        onInstallAll = {
+                            scope.launch {
+                                isInstalling = true
+                                installResult = null
+                                installError = null
+                                try {
+                                    installResult = ArtemisConverter.installEntries(context, game, gameEntries)
+                                    patchStatus = PatchHashRepository.learnFromLogs(context, game)
+                                } catch (e: Exception) {
+                                    installError = e.message ?: "Failed to install Artemis patches"
+                                } finally {
+                                    isInstalling = false
+                                }
+                            }
+                        },
+                        onClear = {
+                            scope.launch {
+                                isInstalling = true
+                                installResult = null
+                                installError = null
+                                try {
+                                    installResult = ArtemisConverter.installEntries(context, game, emptyList())
+                                    patchStatus = PatchHashRepository.learnFromLogs(context, game)
+                                } catch (e: Exception) {
+                                    installError = e.message ?: "Failed to clear Artemis patches"
+                                } finally {
+                                    isInstalling = false
+                                }
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -445,11 +454,15 @@ private fun CheatPreview(
             if (text == null && error == null) {
                 CircularProgressIndicator()
             } else if (text != null) {
+                val selectedCheats = if (entry.format == CheatRepository.FORMAT_RPCS3_PATCH) {
+                    emptyList()
+                } else {
+                    ArtemisConverter.selectedCheats(text, entry)
+                }
                 val summary = if (entry.format == CheatRepository.FORMAT_RPCS3_PATCH) {
                     (entry.convertibleCount ?: 1) to (entry.riskyCount ?: 0)
                 } else {
-                    val cheats = ArtemisConverter.selectedCheats(text, entry)
-                    cheats.count { it.isSupported } to cheats.count { !it.isSupported }
+                    selectedCheats.count { it.isSupported } to selectedCheats.count { !it.isSupported }
                 }
                 Text(
                     if (entry.format == CheatRepository.FORMAT_RPCS3_PATCH) {
@@ -460,21 +473,44 @@ private fun CheatPreview(
                     style = MaterialTheme.typography.bodySmall
                 )
                 if (entry.format != CheatRepository.FORMAT_RPCS3_PATCH) {
-                    val cheats = ArtemisConverter.selectedCheats(text, entry)
-                    if (cheats.isNotEmpty()) {
+                    if (selectedCheats.isNotEmpty()) {
                         Text("Cheats", style = MaterialTheme.typography.labelLarge)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            cheats.take(80).forEach { cheat ->
+                            selectedCheats.take(80).forEach { cheat ->
                                 Text(
                                     "${if (cheat.isSupported) "Safe" else "Risky"} - ${cheat.name}",
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
-                            if (cheats.size > 80) {
+                            if (selectedCheats.size > 80) {
                                 Text(
-                                    "${cheats.size - 80} more cheats in raw NCL below.",
+                                    "${selectedCheats.size - 80} more cheats in raw NCL below.",
                                     style = MaterialTheme.typography.bodySmall
                                 )
+                            }
+                        }
+                    }
+                    val patchOps = selectedCheats.flatMap { it.writes }
+                    if (patchOps.isNotEmpty()) {
+                        Text("Patch ops", style = MaterialTheme.typography.labelLarge)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            patchOps.take(80).forEach { write ->
+                                Text(
+                                    "${write.patchType} 0x${write.address} = 0x${write.value}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            if (patchOps.size > 80) {
+                                Text("${patchOps.size - 80} more patch ops in raw NCL below.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    val unsupportedReasons = selectedCheats.flatMap { it.unsupportedReasons }.distinct()
+                    if (unsupportedReasons.isNotEmpty()) {
+                        Text("Skipped reasons", style = MaterialTheme.typography.labelLarge)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            unsupportedReasons.forEach { reason ->
+                                Text(reason, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
