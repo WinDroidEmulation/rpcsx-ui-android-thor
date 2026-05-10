@@ -14,6 +14,10 @@ This is a personal-use Android fork of RPCSX-UI-Android aimed at the AYN Thor, e
 
 No stability guarantee. No support guarantee. Do not open issues expecting upstream-style triage. If the experiment annoys you, fork it and make your own version.
 
+## Vibe-Coded With AI
+
+This fork is openly AI-assisted and vibe-coded. That means rough edges, fast experiments, blunt tradeoffs, and code that may change because it makes the AYN Thor experience better for personal use. If that bothers you, this is not the repo to depend on.
+
 ## Fork Path
 
 This repo is source-first. Fork it, build it, and change what you need for your own AYN Thor.
