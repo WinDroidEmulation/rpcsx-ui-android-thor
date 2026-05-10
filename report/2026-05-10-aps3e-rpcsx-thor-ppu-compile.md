@@ -1,10 +1,10 @@
-# 2026-05-10 APS3E, RPCSX Easy, and Thor PPU Compile Notes
+# 2026-05-10 APS3E, RPCSX for AYN Thor Experiment, and Thor PPU Compile Notes
 
 ## Short Answer
 
 APS3E is not faster because it magically avoids PS3 emulation work. It is an Android RPCS3-derived port with more Android-specific native control exposed in the app: default LLVM compile thread limits, native CPU detection, selectable LLVM CPU target, thread affinity masks, cache import/export plumbing, and a direct native PPU cache precompile hook.
 
-RPCSX Easy currently wraps a prebuilt RPCSX core through JNI. The UI can read/write core settings and already starts a compilation queue processor, but it does not yet provide a simple "Thor performance preset" or a visible per-game "prepare/build PPU cache" workflow. If the native RPCSX library does not expose direct PPU precompile and thread-affinity controls, those need core/API changes.
+RPCSX for AYN Thor Experiment currently wraps a prebuilt RPCSX core through JNI. The UI can read/write core settings and already starts a compilation queue processor, but it does not yet provide a simple "Thor performance preset" or a visible per-game "prepare/build PPU cache" workflow. If the native RPCSX library does not expose direct PPU precompile and thread-affinity controls, those need core/API changes.
 
 The main Thor fix is not one single setting. It is:
 
@@ -64,7 +64,7 @@ Important APS3E findings from commit `b5ae1af`:
 
 That means APS3E is better positioned for Android performance because it can steer native threads and cache workflows directly. It is not proof that its defaults are perfect. It is proof that our fork needs first-class Thor presets and native hooks instead of burying these controls in generic advanced settings.
 
-## What RPCSX Easy Already Has
+## What RPCSX for AYN Thor Experiment Already Has
 
 Local repo observations:
 
@@ -84,12 +84,21 @@ The missing pieces are product/UI decisions and possibly native exports:
 
 ## Thor-Specific Preset Hypothesis
 
+Update after measuring the connected AYN Thor over ADB:
+
+- CPUs `0-2`: Cortex-A510, mask `0x07`
+- CPUs `3-4`: Cortex-A715, mask `0x18`
+- CPUs `5-6`: Cortex-A710, mask `0x60`
+- CPU `7`: Cortex-X3, mask `0x80`
+- Performance plus prime group: CPUs `3-7`, mask `0xF8`
+- A715 plus prime candidate: CPUs `3-4,7`, mask `0x98`
+
 Do not hardcode logical CPU IDs forever. Detect them on device from `/proc/cpuinfo` and `cpuinfo_max_freq`, then build masks dynamically. For the common Snapdragon 8 Gen 2 layout, a likely logical grouping is:
 
-- Efficiency: A510 cores, usually CPUs `0-2`, mask `0x07`
-- Performance plus prime: A715/X3/A710 cores, often CPUs `3-7`, mask `0xF8`
-- A715 plus X3 subset, often CPUs `3-5`, mask `0x38`
-- A710 pair, often CPUs `6-7`, mask `0xC0`
+- Efficiency: A510 cores, measured as CPUs `0-2`, mask `0x07`
+- Performance plus prime: A715/A710/X3 cores, measured as CPUs `3-7`, mask `0xF8`
+- A715 plus X3 subset, measured as CPUs `3-4,7`, mask `0x98`
+- A710 pair, measured as CPUs `5-6`, mask `0x60`
 
 Initial experiments:
 
@@ -97,9 +106,9 @@ Initial experiments:
 | --- | ---: | ---: | ---: | ---: | --- |
 | Baseline | current | current | current | current | Capture current pain. |
 | Thor Safe | 4 | `0xF8` | `0xF8` | `0xF8` | Keep heavy work off A510 without overthinking. |
-| Thor Balanced | 4 | `0x38` | `0xD8` | `0x20` | Give PPU prime/A715, SPU four perf cores, RSX prime. Test only. |
+| Thor Balanced | 4 | `0x98` | `0xF8` | `0x80` | Give PPU A715 plus prime, SPU all performance cores, RSX prime. Test only. |
 | Thor Compile Burst | 5 | `0xF8` | `0xF8` | `0xF8` | Faster first compile if thermals hold. |
-| Thor Cool | 3 | `0xD8` | `0xD8` | `0x20` | Lower heat, maybe better sustained compile. |
+| Thor Cool | 3 | `0x18` | `0x60` | `0x80` | Lower heat, maybe better sustained compile. |
 
 `Use LLVM CPU` should not be forced blindly. APS3E exposes `cortex-x3`, `cortex-a715`, `cortex-a710`, `cortex-a510`, and fallback targets, but its default is blank. Since generated code may execute on more than one core type, forcing `cortex-x3` is only safe after we prove all runtime cores support the emitted instructions or also pin the generated-code threads to compatible cores. Start with blank/generic, then benchmark `cortex-a710`, `cortex-a715`, and `cortex-x3` separately.
 
@@ -156,7 +165,7 @@ Do not bundle generated PPU caches in the APK. They are generated from user game
 
 ## Benchmark Plan
 
-Use the same game dump, firmware, and app data state for RPCSX Easy and APS3E:
+Use the same game dump, firmware, and app data state for RPCSX for AYN Thor Experiment and APS3E:
 
 1. Cold cache first boot from internal storage.
 2. Cold cache first boot with game on SD but cache on internal.
@@ -180,4 +189,4 @@ Record:
 
 APS3E feels faster because it is closer to the native RPCS3 core and already exposes Android-specific levers: compile thread limit, CPU target, affinity, and cache tooling. PPU compile still has to happen with LLVM unless we switch to interpreter or defer compilation, both of which have tradeoffs.
 
-For RPCSX Easy on AYN Thor, the most useful next move is a real Thor performance/cache workflow: detect the CPU layout, cap compile threads, keep caches on internal storage, give users a clear per-game "Prepare cache" button, and add native affinity/precompile exports where the current RPCSX library does not already expose them.
+For RPCSX for AYN Thor Experiment on AYN Thor, the most useful next move is a real Thor performance/cache workflow: detect the CPU layout, cap compile threads, keep caches on internal storage, give users a clear per-game "Prepare cache" button, and add native affinity/precompile exports where the current RPCSX library does not already expose them.

@@ -88,7 +88,7 @@ android {
     }
 }
 
-base.archivesName = "rpcsx"
+base.archivesName = "rpcsx-thor-experiment"
 
 dependencies {
     implementation(libs.androidx.navigation.compose)

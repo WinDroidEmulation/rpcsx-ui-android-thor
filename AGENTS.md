@@ -1,4 +1,4 @@
-# RPCSX Easy Agent Notes
+# RPCSX for AYN Thor Experiment Agent Notes
 
 ## Repo And Git
 
@@ -6,6 +6,7 @@
 - Remote push target is SSH: `git@github.com:noeldvictor/rpcsx-ui-android.git`.
 - Commit and push completed work to `origin master`.
 - Do not fork extra RPCSX repos for this project; keep Android-side work in this repo unless the user asks otherwise.
+- Public positioning: this is a personal-use, AI-assisted/vibe-coded AYN Thor experiment. Do not present it as official RPCSX, official AYN, stable, or support-backed.
 
 ## Local Build Environment
 
@@ -32,9 +33,9 @@ Useful verification commands:
 
 - Target handheld: Ayn Thor.
 - Known ADB model string: `AYN_Thor`.
-- Debug APK path after assemble: `app\build\outputs\apk\debug\rpcsx-debug.apk`.
+- Debug APK path after assemble: `app\build\outputs\apk\debug\rpcsx-thor-experiment-debug.apk`.
 - Android package: `net.rpcsx.easy`.
-- Launcher label: `RPCSX Easy`.
+- Launcher label: `RPCSX for AYN Thor Experiment`.
 - Launcher activity: `net.rpcsx.MainActivity`.
 - This fork sets `BuildConfig.FORK_BUILD=true`; automatic upstream UI/core update prompts should stay disabled.
 - Folder import is intentionally conservative: only loose `.pkg` and `.edat` files are sent to the native installer. Loose `.iso` files under Android external-storage documents are added as direct library entries instead of extracted, because the current core can abort while extracting some ISO directory entries.
@@ -44,7 +45,7 @@ Install and launch:
 
 ```powershell
 & "$env:ANDROID_HOME\platform-tools\adb.exe" devices -l
-& "$env:ANDROID_HOME\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\rpcsx-debug.apk
+& "$env:ANDROID_HOME\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\rpcsx-thor-experiment-debug.apk
 & "$env:ANDROID_HOME\platform-tools\adb.exe" shell pm grant net.rpcsx.easy android.permission.POST_NOTIFICATIONS
 & "$env:ANDROID_HOME\platform-tools\adb.exe" shell monkey -p net.rpcsx.easy 1
 ```
@@ -75,6 +76,18 @@ If the app does not appear, verify the installed package:
 - RPCSX/RPCS3 patches require a learned PPU hash; boot a game once, close it, then install fixed-write cheats.
 - RPCS3-ready `rpcs3_patch` entries already include PPU hashes and can be installed without the Artemis conversion step.
 - AoB cheats are parsed and counted as risky, but should not be installed until native byte validation/scanning exists.
+
+## Thor CPU Notes
+
+The connected AYN Thor reports board/platform `kalama` and this CPU part layout:
+
+- CPUs `0-2`: Cortex-A510, part `0xd46`, mask `0x07`
+- CPUs `3-4`: Cortex-A715, part `0xd4d`, mask `0x18`
+- CPUs `5-6`: Cortex-A710, part `0xd47`, mask `0x60`
+- CPU `7`: Cortex-X3, part `0xd4e`, mask `0x80`
+- Heavy work mask for performance plus prime cores: CPUs `3-7`, mask `0xF8`
+
+Use detected topology for presets. Do not assume every Snapdragon 8 Gen 2 device orders logical CPUs the same way.
 
 ## Current Cheat/Test Fixture
 
