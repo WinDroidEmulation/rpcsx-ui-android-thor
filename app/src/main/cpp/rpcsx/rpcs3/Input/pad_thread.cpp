@@ -648,6 +648,9 @@ extern bool close_osk_from_ps_button();
 
 void pad_thread::open_home_menu()
 {
+	// Thor fork behavior: opening the in-game Home Menu is a pause/resume toggle.
+	g_cfg.misc.pause_during_home_menu.set(true);
+
 	// Check if the OSK is open and can be closed
 	if (!close_osk_from_ps_button())
 	{

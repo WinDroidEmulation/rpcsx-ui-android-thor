@@ -61,7 +61,8 @@ Useful verification commands:
 - Folder import is intentionally conservative: only loose `.pkg` and `.edat` files are sent to the native installer. Loose `.iso` files under Android external-storage documents are added as direct library entries instead of extracted, because the current core can abort while extracting some ISO directory entries.
 - External ISO entries parse `PS3_GAME/PARAM.SFO` and `PS3_GAME/ICON0.PNG` directly from the ISO to populate title IDs, names, cheat matching, and cached cover art.
 - The README is source-first: no big public APK download button, no support queue positioning.
-- In-game Back is routed to `RPCSX.instance.openHomeMenu()` from `RPCSXActivity`; this opens the native RPCSX Home Menu shown over gameplay.
+- In-game Back is handled by `RPCSXActivity`; it opens the native RPCSX Home Menu on a background thread and then acts as menu back/resume while the menu is up.
+- Gameplay Back behavior is hardcoded for Thor/fork builds: Android Back / Thor Back opens the native Home Menu, the core forces pause-during-Home-Menu on, and another Back press injects the native menu back/cancel action so nested pages back up and the root menu resumes gameplay.
 
 Install and launch:
 
@@ -90,7 +91,7 @@ If the app does not appear, verify the installed package:
 ## Native Home Menu / OSD Work
 
 - Android already shows the native RPCSX in-game `Home Menu` over gameplay. Do not build a separate Android/Compose OSD unless the user explicitly asks for a replacement.
-- The Android wrapper currently opens that menu through `_rpcsx_openHomeMenu`, surfaced as `RPCSX.instance.openHomeMenu()`.
+- The Android wrapper currently opens that menu through `_rpcsx_openHomeMenu`, surfaced as `RPCSX.instance.openHomeMenu()`. `RPCSXActivity` treats Android/Thor Back as the Home Menu toggle/back control; do not remap controller Circle/B to this Android-only action.
 - Adding first-class menu rows such as `Cheats` or `Show FPS` belongs in the native/core Home Menu implementation, or behind a deliberate exported C ABI hook that the Android app can call. Android layout files cannot directly add rows to the existing menu.
 - Native Home Menu source now lives in this repo under `app/src/main/cpp/rpcsx/rpcs3/Emu/RSX/Overlays/HomeMenu/`.
 - The Android-side native export surface for the full core lives at `app/src/main/cpp/rpcsx/android/src/rpcsx-android.cpp`; the lightweight dynamic-loader wrapper lives at `app/src/main/cpp/native-lib.cpp`.

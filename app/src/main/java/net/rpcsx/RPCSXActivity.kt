@@ -33,6 +33,9 @@ class RPCSXActivity : Activity() {
     private var usesAxisL2 = false
     private var usesAxisR2 = false
     private var bootThread: Thread? = null
+    private var homeMenuThread: Thread? = null
+    @Volatile
+    private var homeMenuLikelyOpen = false
     private val inputBindings by lazy { InputBindingPrefs.loadBindings() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -143,19 +146,56 @@ class RPCSXActivity : Activity() {
         return keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_BUTTON_MODE
     }
 
-    private fun openOsdMenu() {
-        RPCSX.instance.openHomeMenu()
+    private fun handleOsdBack() {
+        val state = RPCSX.getState()
+        if (homeMenuLikelyOpen || homeMenuThread?.isAlive == true || state == EmulatorState.Paused) {
+            sendNativeMenuBackPress()
+            return
+        }
+
+        if (state == EmulatorState.Running || state == EmulatorState.Ready || state == EmulatorState.Starting) {
+            openNativeHomeMenu()
+            return
+        }
+
+        finish()
+    }
+
+    private fun openNativeHomeMenu() {
+        if (homeMenuThread?.isAlive == true) {
+            return
+        }
+
+        homeMenuLikelyOpen = true
+        homeMenuThread = thread(name = "RPCSX-HomeMenu") {
+            try {
+                RPCSX.instance.openHomeMenu()
+            } finally {
+                homeMenuLikelyOpen = false
+            }
+        }
+    }
+
+    private fun sendNativeMenuBackPress() {
+        val digital2BeforeBack = gamePadState.digital[1]
+        gamePadState.digital[1] = digital2BeforeBack or Digital2Flags.CELL_PAD_CTRL_CIRCLE.bit
+        sendGamepadData()
+
+        binding.root.postDelayed({
+            gamePadState.digital[1] = digital2BeforeBack
+            sendGamepadData()
+        }, 80L)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        openOsdMenu()
+        handleOsdBack()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (isOsdKey(keyCode)) {
             if (event?.repeatCount == 0) {
-                openOsdMenu()
+                handleOsdBack()
             }
             return true
         }
