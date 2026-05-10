@@ -1,6 +1,8 @@
 package net.rpcsx
 
 import android.content.res.Resources.NotFoundException
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.Keep
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
@@ -14,6 +16,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.security.InvalidParameterException
+import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
 
 enum class GameFlag {
@@ -106,57 +109,87 @@ class GameRepository {
     companion object {
         private val instance = GameRepository()
 
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private val refreshLock = Any()
         private var needsRefresh = false
+        private var refreshRunning = false
         val isRefreshing = mutableStateOf(false)
-        private var isRefreshInCooldown = false
 
         fun save() {
+            if (Looper.myLooper() != Looper.getMainLooper()) {
+                mainHandler.post { save() }
+                return
+            }
+
+            val games = synchronized(instance) {
+                instance.games.map { game -> toInfo(game.info) }.filter { info -> info.path != "$" }
+            }
+            thread {
+                saveSnapshot(games)
+            }
+        }
+
+        private fun saveSnapshot(games: List<GameInfo>) {
             try {
-                File(RPCSX.rootDirectory + "games.json").writeText(Json.encodeToString(instance.games.map { game ->
-                    toInfo(
-                        game.info
-                    )
-                }.filter { info -> info.path != "$" }))
+                File(RPCSX.rootDirectory + "games.json").writeText(Json.encodeToString(games))
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
         suspend fun load() {
-            withContext(Dispatchers.IO) {
+            val loadedGames = withContext(Dispatchers.IO) {
                 try {
-                    instance.games.clear()
-                    instance.games += Json.decodeFromString<Array<GameInfo>>(
+                    Json.decodeFromString<Array<GameInfo>>(
                         File(RPCSX.rootDirectory + "games.json").readText()
                     ).map { info -> Game(toStore(info)) }
                 } catch (_: NotFoundException) {
+                    emptyList()
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    emptyList()
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                synchronized(instance) {
+                    instance.games.clear()
+                    instance.games += loadedGames
                 }
             }
         }
 
         fun queueRefresh() {
-            needsRefresh = true
-            if (!isRefreshing.value || isRefreshInCooldown) {
-                thread {
-                    isRefreshing.value = true
-                    do {
+            synchronized(refreshLock) {
+                needsRefresh = true
+                if (refreshRunning) {
+                    return
+                }
+                refreshRunning = true
+            }
+
+            runOnMain { isRefreshing.value = true }
+            thread {
+                while (true) {
+                    synchronized(refreshLock) {
                         needsRefresh = false
-                        refresh()
-                    } while (needsRefresh)
-                    isRefreshInCooldown = true
+                    }
+                    refresh()
                     Thread.sleep(300)
-                    if (!needsRefresh) {
-                        isRefreshInCooldown = false
-                        isRefreshing.value = false
+
+                    synchronized(refreshLock) {
+                        if (!needsRefresh) {
+                            refreshRunning = false
+                            break
+                        }
                     }
                 }
+                runOnMain { isRefreshing.value = false }
             }
         }
 
         private fun refresh() {
-            clear()
+            runOnMainBlocking { clear() }
             RPCSX.instance.collectGameInfo(
                 RPCSX.rootDirectory + "/config/dev_hdd0/game", -1
             )
@@ -166,84 +199,96 @@ class GameRepository {
         @Keep
         @JvmStatic
         fun add(gameInfos: Array<GameInfo>, progressId: Long) {
-            synchronized(instance) {
-                if (progressId >= 0) {
-                    val progressEntry =
-                        instance.games.filter { game -> game.info.path == "$" }.find { game ->
-                            val progress = game.findProgress(GameProgressType.Install)
-                                ?.find { progress -> progress.id == progressId }
-                            progress != null
-                        }
+            runOnMainBlocking {
+                synchronized(instance) {
+                    if (progressId >= 0) {
+                        val progressEntry =
+                            instance.games.filter { game -> game.info.path == "$" }.find { game ->
+                                val progress = game.findProgress(GameProgressType.Install)
+                                    ?.find { progress -> progress.id == progressId }
+                                progress != null
+                            }
 
-                    if (progressEntry != null) {
-                        instance.games.remove(progressEntry)
+                        if (progressEntry != null) {
+                            instance.games.remove(progressEntry)
+                        }
                     }
-                }
 
-                gameInfos.forEach { info ->
-                    val existsGame = instance.games.find { x -> x.info.path == info.path }
-                    if (existsGame == null) {
-                        val newGame = Game(toStore(info))
-                        if (progressId >= 0) {
-                            newGame.addProgress(GameProgress(progressId, GameProgressType.Install))
-                        }
-                        instance.games.add(0, newGame)
-                    } else {
-                        existsGame.info.name.value = info.name ?: existsGame.info.name.value
-                        existsGame.info.iconPath.value =
-                            info.iconPath ?: existsGame.info.iconPath.value
-                        existsGame.info.gameFlags.intValue = info.gameFlags
-                        existsGame.info.titleId.value =
-                            info.titleId ?: existsGame.info.titleId.value
-                        existsGame.info.sourceUri.value =
-                            info.sourceUri ?: existsGame.info.sourceUri.value
-                        if (progressId >= 0) {
-                            existsGame.addProgress(
-                                GameProgress(
-                                    progressId,
-                                    GameProgressType.Install
+                    gameInfos.forEach { info ->
+                        val existsGame = instance.games.find { x -> x.info.path == info.path }
+                        if (existsGame == null) {
+                            val newGame = Game(toStore(info))
+                            if (progressId >= 0) {
+                                newGame.addProgress(GameProgress(progressId, GameProgressType.Install))
+                            }
+                            instance.games.add(0, newGame)
+                        } else {
+                            existsGame.info.name.value = info.name ?: existsGame.info.name.value
+                            existsGame.info.iconPath.value =
+                                info.iconPath ?: existsGame.info.iconPath.value
+                            existsGame.info.gameFlags.intValue = info.gameFlags
+                            existsGame.info.titleId.value =
+                                info.titleId ?: existsGame.info.titleId.value
+                            existsGame.info.sourceUri.value =
+                                info.sourceUri ?: existsGame.info.sourceUri.value
+                            if (progressId >= 0) {
+                                existsGame.addProgress(
+                                    GameProgress(
+                                        progressId,
+                                        GameProgressType.Install
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
-                }
-                save()
-            }
-        }
-
-        fun addPreview(gameInfos: Array<GameInfo>) {
-            instance.games += gameInfos.map { info -> Game(toStore(info)) }
-        }
-
-        fun onBoot(game: Game) {
-            synchronized(instance) {
-                if (instance.games.first() != game) {
-                    instance.games.remove(game)
-                    instance.games.add(0, game)
                     save()
                 }
             }
         }
 
+        fun addPreview(gameInfos: Array<GameInfo>) {
+            runOnMain {
+                instance.games += gameInfos.map { info -> Game(toStore(info)) }
+            }
+        }
+
+        fun onBoot(game: Game) {
+            runOnMain {
+                synchronized(instance) {
+                    if (instance.games.firstOrNull() != game) {
+                        instance.games.remove(game)
+                        instance.games.add(0, game)
+                        save()
+                    }
+                }
+            }
+        }
+
         fun createGameInstallEntry(progressId: Long) {
-            synchronized(instance) {
-                val game = Game(GameInfoStore("$"))
-                game.addProgress(GameProgress(progressId, GameProgressType.Install))
-                instance.games.add(0, game)
+            runOnMain {
+                synchronized(instance) {
+                    val game = Game(GameInfoStore("$"))
+                    game.addProgress(GameProgress(progressId, GameProgressType.Install))
+                    instance.games.add(0, game)
+                }
             }
         }
 
         fun clearProgress(progressId: Long) {
-            synchronized(instance) {
-                instance.games.forEach { game -> game.progressList.removeIf { progress -> progress.id == progressId } }
-                instance.games.removeIf { game -> game.info.path == "$" && game.progressList.isEmpty() }
+            runOnMain {
+                synchronized(instance) {
+                    instance.games.forEach { game -> game.progressList.removeIf { progress -> progress.id == progressId } }
+                    instance.games.removeIf { game -> game.info.path == "$" && game.progressList.isEmpty() }
+                }
             }
         }
 
         fun remove(game: Game) {
-            synchronized(instance) {
-                instance.games -= game
-                save()
+            runOnMain {
+                synchronized(instance) {
+                    instance.games -= game
+                    save()
+                }
             }
         }
 
@@ -257,6 +302,31 @@ class GameRepository {
 
         fun clear() {
             instance.games.clear()
+        }
+
+        private fun runOnMain(block: () -> Unit) {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                block()
+            } else {
+                mainHandler.post(block)
+            }
+        }
+
+        private fun runOnMainBlocking(block: () -> Unit) {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                block()
+                return
+            }
+
+            val latch = CountDownLatch(1)
+            mainHandler.post {
+                try {
+                    block()
+                } finally {
+                    latch.countDown()
+                }
+            }
+            latch.await()
         }
     }
 }

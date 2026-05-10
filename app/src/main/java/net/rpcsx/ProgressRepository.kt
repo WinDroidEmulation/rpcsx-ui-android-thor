@@ -53,18 +53,7 @@ class ProgressRepository {
         fun onProgressEvent(id: Long, value: Long, max: Long, message: String? = null): Boolean {
             val item = instance.progressHandlers[id] ?: return false
 
-            item.progressEntry.value.apply {
-                this.value.longValue = value
-                this.max.longValue = max
-                this.message.value = message ?: this.message.value
-            }
-
-            item.handler(ProgressUpdateEntry(value, max, item.progressEntry.value.message.value))
-
-            if (item.progressEntry.value.isFinished()) {
-                cancel(id)
-            }
-
+            item.handler(ProgressUpdateEntry(value, max, message))
             return true
         }
 
@@ -110,12 +99,20 @@ class ProgressRepository {
                 val value = message.data.getLong("value")
                 val max = message.data.getLong("max")
                 val text = message.data.getString("message")
+                val progressEntry = entry.progressEntry.value
+                val currentText = text ?: progressEntry.message.value
+
+                progressEntry.apply {
+                    this.value.longValue = value
+                    this.max.longValue = max
+                    this.message.value = currentText
+                }
 
                 if (hasPermission) {
                     val notificationManager = NotificationManagerCompat.from(context)
 
-                    if (text != null) {
-                        builder.setContentText(text)
+                    if (currentText != null) {
+                        builder.setContentText(currentText)
                     }
 
                     if (value >= 0 && max > 0) {
@@ -126,7 +123,7 @@ class ProgressRepository {
                             notificationManager.notify(requestId.toInt(), builder.build())
                         }
                     } else if (value < 0) {
-                        val contentText = text ?: context.getString(R.string.unexpected_error)
+                        val contentText = currentText ?: context.getString(R.string.unexpected_error)
                         builder.setContentText(contentText)
                             .setPriority(NotificationCompat.PRIORITY_HIGH)
                             .setProgress(0, 0, false)
@@ -139,7 +136,10 @@ class ProgressRepository {
                     }
                 }
 
-                handler(ProgressUpdateEntry(value, max, text))
+                handler(ProgressUpdateEntry(value, max, currentText))
+                if (progressEntry.isFinished()) {
+                    cancel(requestId)
+                }
                 true
             }
 

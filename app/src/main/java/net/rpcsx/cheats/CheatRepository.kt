@@ -54,6 +54,7 @@ object CheatRepository {
     private val expandedCacheLock = Any()
     private var expandedCacheSignature: String? = null
     private var expandedCacheEntries: List<CheatEntry> = emptyList()
+    private var titleIdIndex: Map<String, List<CheatEntry>> = emptyMap()
 
     suspend fun load(context: Context, forceRefresh: Boolean = false) {
         if (isLoading.value) {
@@ -89,7 +90,7 @@ object CheatRepository {
                 withContext(Dispatchers.Main) {
                     entries.clear()
                     entries.addAll(parsed)
-                    clearExpandedCache()
+                    rebuildLookupCaches(parsed)
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -112,7 +113,8 @@ object CheatRepository {
         }
 
         val titleIdMatches = if (ids.isNotEmpty()) {
-            entries.filter { entry -> entry.titleIds.any { it in ids } }
+            ids.flatMap { id -> titleIdIndex[id.uppercase()].orEmpty() }
+                .distinctBy { entryIdentity(it) }
         } else {
             emptyList()
         }
@@ -384,12 +386,18 @@ object CheatRepository {
         return File(root, "cheats")
     }
 
-    private fun clearExpandedCache() {
+    private fun rebuildLookupCaches(sourceEntries: List<CheatEntry>) {
         synchronized(expandedCacheLock) {
             expandedCacheSignature = null
             expandedCacheEntries = emptyList()
+            titleIdIndex = sourceEntries
+                .flatMap { entry -> entry.titleIds.map { id -> id.uppercase() to entry } }
+                .groupBy({ it.first }, { it.second })
         }
     }
+
+    private fun entryIdentity(entry: CheatEntry): String =
+        "${entry.fileName}:${entry.format}:${entry.patchHash.orEmpty()}:${entry.assetName.orEmpty()}"
 
     private fun Cursor.stringOrNull(index: Int): String? =
         if (isNull(index)) null else getString(index)

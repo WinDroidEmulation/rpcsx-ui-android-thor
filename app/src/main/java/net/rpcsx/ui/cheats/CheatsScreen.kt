@@ -26,6 +26,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -134,8 +135,12 @@ fun CheatsScreen(
     val gameEntries = if (game != null) expandedGameEntries.ifEmpty { matchedEntries } else emptyList()
     val globalEntries = expandedGlobalEntries.ifEmpty { CheatRepository.entries.toList() }
     val sourceEntries = if (game != null) gameEntries else globalEntries
-    val visibleEntries = sourceEntries.filter { showUnavailable || isReadyCheat(it) }
-    val baseEntries = filterEntries(visibleEntries, query)
+    val visibleEntries by remember(sourceEntries, showUnavailable) {
+        derivedStateOf { sourceEntries.filter { showUnavailable || isReadyCheat(it) } }
+    }
+    val baseEntries by remember(visibleEntries, query) {
+        derivedStateOf { filterEntries(visibleEntries, query) }
+    }
     LaunchedEffect(game?.info?.path, query, baseEntries.joinToString("|") { entryKey(it) }) {
         val selected = selectedEntry
         if (selected != null && baseEntries.none { entryKey(it) == entryKey(selected) }) {
@@ -149,16 +154,22 @@ fun CheatsScreen(
     } else {
         emptyList()
     }
-    val hiddenUnavailableCount = sourceEntries.count { !isReadyCheat(it) }
+    val hiddenUnavailableCount by remember(sourceEntries) {
+        derivedStateOf { sourceEntries.count { !isReadyCheat(it) } }
+    }
 
     fun saveCheatToggles() {
         val targetGame = game ?: return
+        if (isSaving) {
+            return
+        }
+
+        val selected = CheatSelectionRepository.enabledEntries(context, gameKey, gameEntries)
+        isSaving = true
+        saveResult = null
+        saveError = null
         scope.launch {
-            isSaving = true
-            saveResult = null
-            saveError = null
             try {
-                val selected = CheatSelectionRepository.enabledEntries(context, gameKey, gameEntries)
                 saveResult = ArtemisConverter.installEntries(context, targetGame, selected)
                 patchStatus = PatchHashRepository.learnFromLogs(context, targetGame)
             } catch (e: Exception) {
