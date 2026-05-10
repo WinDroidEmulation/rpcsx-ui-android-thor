@@ -19,6 +19,7 @@ import net.rpcsx.dialogs.AlertDialogQueue
 import net.rpcsx.overlay.State
 import net.rpcsx.utils.InputBindingPrefs
 import net.rpcsx.performance.ThorPerformanceProfile
+import net.rpcsx.utils.ControllerOverlayPrefs
 import kotlin.concurrent.thread
 import kotlin.math.abs
 
@@ -39,9 +40,11 @@ class RPCSXActivity : Activity() {
         unregisterUsbEventListener = listenUsbEvents(this)
         enableFullScreenImmersive()
 
+        applyScreenControlsVisibility(ControllerOverlayPrefs.showScreenControls())
         binding.oscToggle.setOnClickListener {
-            binding.padOverlay.isInvisible = !binding.padOverlay.isInvisible
-            binding.oscToggle.setImageResource(if (binding.padOverlay.isInvisible) R.drawable.ic_osc_off else R.drawable.ic_show_osc)
+            val showControls = binding.padOverlay.isInvisible
+            ControllerOverlayPrefs.setShowScreenControls(showControls)
+            applyScreenControlsVisibility(showControls)
         }
 
         val gamePath = intent.getStringExtra("path")!!
@@ -90,6 +93,19 @@ class RPCSXActivity : Activity() {
         unregisterUsbEventListener()
         bootThread?.interrupt()
         bootThread?.join()
+    }
+
+    private fun applyScreenControlsVisibility(showControls: Boolean) {
+        binding.padOverlay.isInvisible = !showControls
+        if (showControls) {
+            binding.padOverlay.alpha = 1f
+        }
+        binding.oscToggle.setImageResource(
+            if (showControls) R.drawable.ic_show_osc else R.drawable.ic_osc_off
+        )
+        binding.oscToggle.contentDescription = getString(
+            if (showControls) R.string.hide_on_screen_controls else R.string.show_on_screen_controls
+        )
     }
 
 

@@ -138,6 +138,7 @@ Use detected topology for presets. Do not assume every Snapdragon 8 Gen 2 device
 - Custom GPU driver UI lives at `app/src/main/java/net/rpcsx/ui/drivers/GpuDriversScreen.kt`.
 - Curated GPU driver channels live in `app/src/main/java/net/rpcsx/ui/channels/UpdateChannelsScreen.kt`; keep K11MCH1/Kimchi first, StevenMXZ experimental, and CI builds clearly marked risky.
 - Thor Base/Pro/Max are Adreno 740. Prefer A6xx/A7xx Turnip packages when testing custom drivers, keep `Default` as fallback, and label A8xx/Gen8 packages as not for Thor.
+- On-screen controls preference lives in `ControllerOverlayPrefs`; Thor/AYN/kalama targets default hidden, non-Thor devices default visible.
 - Next low-risk Android work: cache cheat badge lookups per game title ID, add stale-cache/core-version labeling, and keep heavy global cheat expansion off Base unless requested.
 - Next native/core work: implement/export `_rpcsx_preparePpuCache`, CPU topology, PPU/SPU/RSX affinity masks, and authoritative cache status. UI-only changes cannot truly pin native compile threads.
 - Default PPU compile experiment for Base/Pro/Max: Max LLVM compile threads `4`, heavy mask `0xF8`, then benchmark `3`, `5`, and `6`.

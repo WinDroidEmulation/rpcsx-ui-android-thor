@@ -84,6 +84,8 @@
     <!-- RPCSXActivity -->
     <string name="error_with_msg">Error: %1$s</string>
     <string name="failed_to_boot">Failed to boot</string>
+    <string name="hide_on_screen_controls">Hide On-Screen Controls</string>
+    <string name="show_on_screen_controls">Show On-Screen Controls</string>
 
     <!-- RpcsxUpdater -->
     <string name="restart_ui_to_apply_change">Restart Thor Experiment UI to apply change</string>

@@ -95,6 +95,7 @@ import net.rpcsx.dialogs.AlertDialogQueue
 import net.rpcsx.performance.CacheStorageManager
 import net.rpcsx.provider.AppDataDocumentProvider
 import net.rpcsx.ui.common.ComposePreview
+import net.rpcsx.utils.ControllerOverlayPrefs
 import net.rpcsx.utils.FileUtil
 import net.rpcsx.utils.GeneralSettings
 import net.rpcsx.utils.InputBindingPrefs
@@ -908,6 +909,22 @@ fun ControllerSettings(
 
             item {
                 PreferenceHeader(stringResource(R.string.gamepad_overlay))
+            }
+
+            item {
+                var itemValue by remember {
+                    mutableStateOf(ControllerOverlayPrefs.showScreenControls())
+                }
+                val def = ControllerOverlayPrefs.defaultShowScreenControls()
+                SwitchPreference(
+                    checked = itemValue,
+                    title = stringResource(R.string.show_on_screen_controls) + if (itemValue == def) "" else " *",
+                    leadingIcon = null,
+                    onClick = { value ->
+                        ControllerOverlayPrefs.setShowScreenControls(value)
+                        itemValue = value
+                    }
+                )
             }
 
             item {
