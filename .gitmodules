@@ -1,3 +1,117 @@
 [submodule "app/src/main/cpp/libadrenotools"]
 	path = app/src/main/cpp/libadrenotools
 	url = ../../bylaws/libadrenotools.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/xbyak"]
+	path = app/src/main/cpp/rpcsx/3rdparty/xbyak
+	url = git@github.com:RPCSX/xbyak.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/SPIRV-Tools"]
+	path = app/src/main/cpp/rpcsx/3rdparty/SPIRV-Tools
+	url = git@github.com:RPCSX/SPIRV-Tools.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/SPIRV-Headers"]
+	path = app/src/main/cpp/rpcsx/3rdparty/SPIRV-Headers
+	url = git@github.com:KhronosGroup/SPIRV-Headers.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/SPIRV-Cross"]
+	path = app/src/main/cpp/rpcsx/3rdparty/SPIRV-Cross
+	url = git@github.com:KhronosGroup/SPIRV-Cross.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/glslang"]
+	path = app/src/main/cpp/rpcsx/3rdparty/glslang
+	url = git@github.com:KhronosGroup/glslang.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/json"]
+	path = app/src/main/cpp/rpcsx/3rdparty/json
+	url = git@github.com:nlohmann/json.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/FFmpeg"]
+	path = app/src/main/cpp/rpcsx/3rdparty/FFmpeg
+	url = git@github.com:FFmpeg/FFmpeg.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/LibAtrac9"]
+	path = app/src/main/cpp/rpcsx/3rdparty/LibAtrac9
+	url = git@github.com:RPCSX/LibAtrac9.git
+[submodule "app/src/main/cpp/rpcsx/rpcs3/3rdparty/ffmpeg"]
+	path = app/src/main/cpp/rpcsx/rpcs3/3rdparty/ffmpeg
+	url = git@github.com:RPCS3/ffmpeg-core.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/asmjit/asmjit"]
+	path = app/src/main/cpp/rpcsx/3rdparty/asmjit/asmjit
+	url = git@github.com:asmjit/asmjit.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/llvm/llvm"]
+	path = app/src/main/cpp/rpcsx/3rdparty/llvm/llvm
+	url = git@github.com:llvm/llvm-project.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/zlib/zlib"]
+	path = app/src/main/cpp/rpcsx/3rdparty/zlib/zlib
+	url = git@github.com:madler/zlib
+[submodule "app/src/main/cpp/rpcsx/3rdparty/hidapi/hidapi"]
+	path = app/src/main/cpp/rpcsx/3rdparty/hidapi/hidapi
+	url = git@github.com:RPCS3/hidapi.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/pugixml"]
+	path = app/src/main/cpp/rpcsx/3rdparty/pugixml
+	url = git@github.com:zeux/pugixml.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/yaml-cpp/yaml-cpp"]
+	path = app/src/main/cpp/rpcsx/3rdparty/yaml-cpp/yaml-cpp
+	url = git@github.com:RPCS3/yaml-cpp.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/libpng/libpng"]
+	path = app/src/main/cpp/rpcsx/3rdparty/libpng/libpng
+	url = git@github.com:glennrp/libpng.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/libusb/libusb"]
+	path = app/src/main/cpp/rpcsx/3rdparty/libusb/libusb
+	url = git@github.com:libusb/libusb.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/FAudio"]
+	path = app/src/main/cpp/rpcsx/3rdparty/FAudio
+	url = git@github.com:FNA-XNA/FAudio.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/curl/curl"]
+	path = app/src/main/cpp/rpcsx/3rdparty/curl/curl
+	url = git@github.com:curl/curl.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/wolfssl/wolfssl"]
+	path = app/src/main/cpp/rpcsx/3rdparty/wolfssl/wolfssl
+	url = git@github.com:wolfSSL/wolfssl.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/flatbuffers"]
+	path = app/src/main/cpp/rpcsx/3rdparty/flatbuffers
+	url = git@github.com:google/flatbuffers.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/cubeb/cubeb"]
+	path = app/src/main/cpp/rpcsx/3rdparty/cubeb/cubeb
+	url = git@github.com:mozilla/cubeb.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/SoundTouch/soundtouch"]
+	path = app/src/main/cpp/rpcsx/3rdparty/SoundTouch/soundtouch
+	url = git@github.com:RPCS3/soundtouch.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/libsdl-org/SDL"]
+	path = app/src/main/cpp/rpcsx/3rdparty/libsdl-org/SDL
+	url = git@github.com:libsdl-org/SDL.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/miniupnp/miniupnp"]
+	path = app/src/main/cpp/rpcsx/3rdparty/miniupnp/miniupnp
+	url = git@github.com:miniupnp/miniupnp.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/rtmidi/rtmidi"]
+	path = app/src/main/cpp/rpcsx/3rdparty/rtmidi/rtmidi
+	url = git@github.com:thestk/rtmidi
+[submodule "app/src/main/cpp/rpcsx/3rdparty/zstd/zstd"]
+	path = app/src/main/cpp/rpcsx/3rdparty/zstd/zstd
+	url = git@github.com:facebook/zstd
+[submodule "app/src/main/cpp/rpcsx/3rdparty/7zip/7zip"]
+	path = app/src/main/cpp/rpcsx/3rdparty/7zip/7zip
+	url = git@github.com:ip7z/7zip.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/OpenAL/openal-soft"]
+	path = app/src/main/cpp/rpcsx/3rdparty/OpenAL/openal-soft
+	url = git@github.com:kcat/openal-soft.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/stblib/stb"]
+	path = app/src/main/cpp/rpcsx/3rdparty/stblib/stb
+	url = git@github.com:nothings/stb.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/opencv/opencv"]
+	path = app/src/main/cpp/rpcsx/3rdparty/opencv/opencv
+	url = git@github.com:Megamouse/opencv_minimal.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/fusion/fusion"]
+	path = app/src/main/cpp/rpcsx/3rdparty/fusion/fusion
+	url = git@github.com:xioTechnologies/Fusion.git
+[submodule "app/src/main/cpp/rpcsx/rpcs3/3rdparty/discord-rpc/discord-rpc"]
+	path = app/src/main/cpp/rpcsx/rpcs3/3rdparty/discord-rpc/discord-rpc
+	url = git@github.com:Vestrel/discord-rpc
+[submodule "app/src/main/cpp/rpcsx/3rdparty/GPUOpen/VulkanMemoryAllocator"]
+	path = app/src/main/cpp/rpcsx/3rdparty/GPUOpen/VulkanMemoryAllocator
+	url = git@github.com:Megamouse/VulkanMemoryAllocator.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/Vulkan-Headers"]
+	path = app/src/main/cpp/rpcsx/3rdparty/Vulkan-Headers
+	url = git@github.com:KhronosGroup/Vulkan-Headers.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/fmtlib"]
+	path = app/src/main/cpp/rpcsx/3rdparty/fmtlib
+	url = git@github.com:fmtlib/fmt.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/Vulkan-Loader"]
+	path = app/src/main/cpp/rpcsx/3rdparty/Vulkan-Loader
+	url = git@github.com:KhronosGroup/Vulkan-Loader.git
+[submodule "app/src/main/cpp/rpcsx/3rdparty/glfw"]
+	path = app/src/main/cpp/rpcsx/3rdparty/glfw
+	url = git@github.com:glfw/glfw.git
