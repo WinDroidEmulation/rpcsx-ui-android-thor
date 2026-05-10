@@ -51,6 +51,9 @@ object CheatRepository {
     val lastError = mutableStateOf<String?>(null)
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
+    private val expandedCacheLock = Any()
+    private var expandedCacheSignature: String? = null
+    private var expandedCacheEntries: List<CheatEntry> = emptyList()
 
     suspend fun load(context: Context, forceRefresh: Boolean = false) {
         if (isLoading.value) {
@@ -86,6 +89,7 @@ object CheatRepository {
                 withContext(Dispatchers.Main) {
                     entries.clear()
                     entries.addAll(parsed)
+                    clearExpandedCache()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -141,31 +145,50 @@ object CheatRepository {
     suspend fun expandEntries(context: Context, sourceEntries: List<CheatEntry>): List<CheatEntry> =
         withContext(Dispatchers.IO) {
             sourceEntries.flatMap { entry ->
-                if (entry.format == FORMAT_RPCS3_PATCH) {
-                    listOf(entry)
-                } else {
-                    val text = getCheatText(context, entry)
-                    val cheats = ArtemisConverter.parse(text)
-                    if (cheats.isEmpty()) {
+                runCatching {
+                    if (entry.format == FORMAT_RPCS3_PATCH) {
                         listOf(entry)
                     } else {
-                        cheats.mapIndexed { index, cheat ->
-                            entry.copy(
-                                size = if (cheat.isSupported) {
-                                    "${cheat.writes.size} static patch ops"
-                                } else {
-                                    "Risky/runtime"
-                                },
-                                convertibleCount = if (cheat.isSupported) 1 else 0,
-                                riskyCount = if (cheat.isSupported) 0 else 1,
-                                cheatName = cheat.name,
-                                cheatIndex = index
-                            )
+                        val text = getCheatText(context, entry)
+                        val cheats = ArtemisConverter.parse(text)
+                        if (cheats.isEmpty()) {
+                            listOf(entry)
+                        } else {
+                            cheats.mapIndexed { index, cheat ->
+                                entry.copy(
+                                    size = if (cheat.isSupported) {
+                                        "${cheat.writes.size} static patch ops"
+                                    } else {
+                                        "Risky/runtime"
+                                    },
+                                    convertibleCount = if (cheat.isSupported) 1 else 0,
+                                    riskyCount = if (cheat.isSupported) 0 else 1,
+                                    cheatName = cheat.name,
+                                    cheatIndex = index
+                                )
+                            }
                         }
                     }
-                }
+                }.getOrElse { listOf(entry) }
             }
         }
+
+    suspend fun expandAllEntries(context: Context): List<CheatEntry> {
+        val sourceEntries = entries.toList()
+        val signature = sourceEntries.joinToString("|") { "${it.fileName}:${it.assetName}:${it.format}" }
+        synchronized(expandedCacheLock) {
+            if (signature == expandedCacheSignature) {
+                return expandedCacheEntries
+            }
+        }
+
+        val expanded = expandEntries(context, sourceEntries)
+        synchronized(expandedCacheLock) {
+            expandedCacheSignature = signature
+            expandedCacheEntries = expanded
+        }
+        return expanded
+    }
 
     suspend fun getCheatText(context: Context, entry: CheatEntry): String = withContext(Dispatchers.IO) {
         if (entry.format == FORMAT_RPCS3_PATCH) {
@@ -359,6 +382,13 @@ object CheatRepository {
         }
 
         return File(root, "cheats")
+    }
+
+    private fun clearExpandedCache() {
+        synchronized(expandedCacheLock) {
+            expandedCacheSignature = null
+            expandedCacheEntries = emptyList()
+        }
     }
 
     private fun Cursor.stringOrNull(index: Int): String? =

@@ -77,6 +77,9 @@ fun CheatsScreen(
         mutableStateOf(game?.let { PatchHashRepository.cachedStatus(context, it) })
     }
     var expandedGameEntries by remember(game?.info?.path) { mutableStateOf<List<CheatEntry>>(emptyList()) }
+    var expandedGlobalEntries by remember { mutableStateOf<List<CheatEntry>>(emptyList()) }
+    var isExpandingGlobal by remember { mutableStateOf(false) }
+    var globalExpandError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     val gameKey = game?.let { GameIdentity.primaryTitleId(it) ?: it.info.path } ?: "global"
@@ -88,6 +91,26 @@ fun CheatsScreen(
     LaunchedEffect(refreshNonce, game?.info?.path) {
         CheatRepository.load(context, forceRefresh = refreshNonce > 0)
         patchStatus = game?.let { PatchHashRepository.learnFromLogs(context, it) }
+    }
+
+    LaunchedEffect(
+        game?.info?.path,
+        refreshNonce,
+        CheatRepository.entries.size,
+        CheatRepository.isLoading.value
+    ) {
+        if (game != null || CheatRepository.entries.isEmpty() || CheatRepository.isLoading.value) {
+            return@LaunchedEffect
+        }
+
+        isExpandingGlobal = true
+        globalExpandError = null
+        expandedGlobalEntries = runCatching { CheatRepository.expandAllEntries(context) }
+            .getOrElse {
+                globalExpandError = it.message ?: "Failed to prepare individual cheat list"
+                CheatRepository.entries.toList()
+            }
+        isExpandingGlobal = false
     }
 
     LaunchedEffect(selectedEntry) {
@@ -114,10 +137,11 @@ fun CheatsScreen(
     }
 
     val gameEntries = if (game != null) expandedGameEntries.ifEmpty { matchedEntries } else emptyList()
+    val globalEntries = expandedGlobalEntries.ifEmpty { CheatRepository.entries.toList() }
     val baseEntries = when {
         game != null && query.isBlank() -> gameEntries
         game != null -> filterEntries(gameEntries, query)
-        else -> CheatRepository.search(query)
+        else -> filterEntries(globalEntries, query)
     }
     LaunchedEffect(game?.info?.path, query, baseEntries.joinToString("|") { entryKey(it) }) {
         val selected = selectedEntry
@@ -202,7 +226,27 @@ fun CheatsScreen(
                 }
             }
 
+            if (isExpandingGlobal) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.width(8.dp))
+                        Text("Preparing individual cheat list", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
             CheatRepository.lastError.value?.let {
+                item {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
+            }
+
+            globalExpandError?.let {
                 item {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
@@ -210,7 +254,7 @@ fun CheatsScreen(
 
             item {
                 Text(
-                    "${baseEntries.size} ${if (game != null) "cheats" else "entries"}",
+                    "${baseEntries.size} ${if (game != null || expandedGlobalEntries.isNotEmpty()) "cheats" else "entries"}",
                     style = MaterialTheme.typography.labelLarge
                 )
             }
@@ -218,12 +262,15 @@ fun CheatsScreen(
             items(baseEntries, key = { entryKey(it) }) { entry ->
                 CheatEntryCard(
                     entry = entry,
-                    enabled = CheatSelectionRepository.isEnabled(context, gameKey, entry),
+                    enabled = game != null && CheatSelectionRepository.isEnabled(context, gameKey, entry),
+                    showToggle = game != null,
                     onEnabledChange = {
-                        CheatSelectionRepository.setEnabled(context, gameKey, entry, it)
-                        selectionNonce++
-                        installResult = null
-                        installError = null
+                        if (game != null) {
+                            CheatSelectionRepository.setEnabled(context, gameKey, entry, it)
+                            selectionNonce++
+                            installResult = null
+                            installError = null
+                        }
                     },
                     onOpen = { selectedEntry = entry }
                 )
@@ -385,6 +432,7 @@ private fun CheatInstallCard(
 private fun CheatEntryCard(
     entry: CheatEntry,
     enabled: Boolean,
+    showToggle: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onOpen: () -> Unit
 ) {
@@ -432,7 +480,9 @@ private fun CheatEntryCard(
             TextButton(onClick = onOpen) {
                 Text("View")
             }
-            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            if (showToggle) {
+                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            }
         }
     }
 }
