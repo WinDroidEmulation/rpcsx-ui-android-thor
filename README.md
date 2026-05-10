@@ -69,6 +69,7 @@ Captured from the connected AYN Thor test device.
 - External ISO folder import is handled as direct library entries instead of blindly extracting loose ISO contents.
 - ISO metadata and cover lookup read `PS3_GAME/PARAM.SFO` and `PS3_GAME/ICON0.PNG` directly where possible.
 - Cheat work is now a first-class fork feature: bundled cheat database assets, cheat badges, per-game cheat visibility, Artemis/Aldos import experiments, and RPCS3 patch imports.
+- Recommended per-game settings are now a fork feature: the APK bundles an RPCS3 config database snapshot and the game detail screen exposes one simple switch per game.
 - Trim/Optimize is intentionally visible as an experimental tool path rather than hidden developer plumbing.
 - Thor-specific performance research lives under `report/`, including PPU compile/cache notes and Snapdragon 8 Gen 2 targeting.
 - Generated icon and README art are custom for this fork and intentionally avoid console/game/IP logos.
@@ -107,6 +108,7 @@ Base/Pro/Max should use the same CPU and GPU presets. Pro/Max mostly let us keep
 ## Reports
 
 - [APS3E, RPCSX, and Thor PPU compile notes](report/2026-05-10-aps3e-rpcsx-thor-ppu-compile.md)
+- [RPCS3 automatic game settings notes](report/2026-05-10-rpcs3-auto-game-settings.md)
 - [AYN Thor Base/Pro/Max Snapdragon 8 Gen 2 target notes](report/2026-05-10-snapdragon-8-gen-2-thor-target.md)
 - [Markdown and Thor variant audit](report/2026-05-10-markdown-and-thor-variant-audit.md)
 

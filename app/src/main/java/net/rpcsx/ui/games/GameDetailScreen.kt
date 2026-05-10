@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -25,12 +26,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.rpcsx.Game
 import net.rpcsx.R
 import net.rpcsx.cheats.CheatEntry
@@ -38,6 +44,7 @@ import net.rpcsx.cheats.CheatRepository
 import net.rpcsx.cheats.CheatSelectionRepository
 import net.rpcsx.cheats.PatchHashRepository
 import net.rpcsx.cheats.PatchHashStatus
+import net.rpcsx.config.GameSettingsDatabase
 import net.rpcsx.utils.GameIdentity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,14 +56,20 @@ fun GameDetailScreen(
     navigateToTrim: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val launchGame = rememberGameLauncher(game)
     val titleIds = GameIdentity.titleIdsForGame(game)
     var hashStatus by remember(game.info.path) { mutableStateOf(PatchHashRepository.cachedStatus(context, game)) }
     var expandedCheats by remember(game.info.path) { mutableStateOf<List<CheatEntry>>(emptyList()) }
+    var settingsStatus by remember(game.info.path) { mutableStateOf<GameSettingsDatabase.Status?>(null) }
 
     LaunchedEffect(game.info.path) {
         CheatRepository.load(context)
         hashStatus = PatchHashRepository.learnFromLogs(context, game)
+        settingsStatus = withContext(Dispatchers.IO) {
+            GameSettingsDatabase.ensureDatabaseExported(context)
+            GameSettingsDatabase.statusForGame(context, game)
+        }
     }
 
     val matchedCheats = CheatRepository.matches(game)
@@ -145,6 +158,23 @@ fun GameDetailScreen(
             }
 
             item {
+                RecommendedSettingsCard(
+                    status = settingsStatus,
+                    onToggle = { enabled ->
+                        scope.launch {
+                            settingsStatus = withContext(Dispatchers.IO) {
+                                GameSettingsDatabase.setRecommendedSettingsEnabled(
+                                    context,
+                                    game,
+                                    enabled
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+
+            item {
                 Button(onClick = navigateToTrim, modifier = Modifier.fillMaxWidth()) {
                     Icon(painter = painterResource(id = R.drawable.tune), contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -168,6 +198,51 @@ fun GameDetailScreen(
                     "Most cheats are saved before launch and take effect the next time you start the game.",
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecommendedSettingsCard(
+    status: GameSettingsDatabase.Status?,
+    onToggle: (Boolean) -> Unit
+) {
+    val switchEnabled = status?.hasProfile == true && !status.customConfigPresent
+    val checked = status?.enabled == true
+    val message = when {
+        status == null -> "Checking recommended settings."
+        status.titleId == null -> "No title ID detected yet."
+        !status.hasProfile -> "No recommended settings for ${status.titleId} yet."
+        status.customConfigPresent -> "Custom settings already exist; leaving them alone."
+        status.enabled && status.applied -> "On for next start."
+        status.enabled -> "On; will be saved when you start the game."
+        else -> "Off for this game."
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Recommended Settings", style = MaterialTheme.typography.titleMedium)
+                    Text(message, style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(
+                    checked = checked,
+                    enabled = switchEnabled,
+                    onCheckedChange = onToggle
+                )
+            }
+
+            if (status?.databaseTimestamp != null && status.hasProfile) {
+                Text("Profile ${status.titleId}", style = MaterialTheme.typography.bodySmall)
+            }
+
+            if (status?.error != null) {
+                Text(status.error, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

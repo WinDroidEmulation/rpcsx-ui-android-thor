@@ -17,6 +17,7 @@ import net.rpcsx.ProgressRepository
 import net.rpcsx.R
 import net.rpcsx.RPCSX
 import net.rpcsx.RPCSXActivity
+import net.rpcsx.config.GameSettingsDatabase
 import net.rpcsx.dialogs.AlertDialogQueue
 import kotlin.concurrent.thread
 
@@ -116,6 +117,7 @@ private fun launchGame(
         return
     }
 
+    GameSettingsDatabase.applyRecommendedConfig(context, game)
     GameRepository.onBoot(game)
     val emulatorWindow = Intent(context, RPCSXActivity::class.java)
     emulatorWindow.putExtra("path", game.info.path)

@@ -78,6 +78,18 @@ If the app does not appear, verify the installed package:
 - RPCS3-ready `rpcs3_patch` entries already include PPU hashes and can be installed without the Artemis conversion step.
 - AoB cheats are parsed and counted as risky, but should not be installed until native byte validation/scanning exists.
 
+## Recommended Game Settings
+
+- Bundled database: `app/src/main/assets/config/config_database.dat`.
+- Current source endpoint: `https://api.rpcs3.net/config/?api=v1`.
+- The snapshot is RPCS3-style JSON: `games[TITLEID].config` contains a YAML config snippet.
+- Android-side manager: `app/src/main/java/net/rpcsx/config/GameSettingsDatabase.kt`.
+- The app exports the bundled snapshot to `config/GuiConfigs/config_database.dat` under the RPCSX root so a future/core-side config database reader can find the familiar upstream location.
+- The game detail screen shows this as `Recommended Settings`, not as database jargon.
+- Managed per-game configs are written to `config/custom_configs/config_TITLEID.yml` with the `# RPCSX_THOR_AUTO_SETTINGS` header.
+- Never overwrite an existing custom config unless it has the managed header. User-created custom configs win.
+- Boot flow applies the recommended config before launch only when the game has a title-ID match and the user has not turned the switch off for that game.
+
 ## Thor Variant Notes
 
 Base, Pro, and Max share the same CPU/GPU performance target:

@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import net.rpcsx.config.GameSettingsDatabase
 import net.rpcsx.dialogs.AlertDialogQueue
 import net.rpcsx.ui.navigation.AppNavHost
 import net.rpcsx.utils.GeneralSettings
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
             if (!RPCSX.rootDirectory.endsWith("/")) {
                 RPCSX.rootDirectory += "/"
             }
+            GameSettingsDatabase.ensureDatabaseExported(this)
 
             lifecycleScope.launch {
                 GameRepository.load()

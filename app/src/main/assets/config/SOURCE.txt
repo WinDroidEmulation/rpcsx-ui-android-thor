@@ -1,0 +1,16 @@
+RPCS3 recommended game settings database
+
+Bundled file:
+- config_database.dat
+
+Source:
+- https://api.rpcs3.net/config/?api=v1
+
+Snapshot:
+- API timestamp UTC: 2026-05-02 17:53:44
+- Game profiles: 2125
+
+Usage:
+- Loaded by net.rpcsx.config.GameSettingsDatabase.
+- Exported on startup to config/GuiConfigs/config_database.dat under the RPCSX app root.
+- Managed per-game configs are written as config/custom_configs/config_TITLEID.yml.
