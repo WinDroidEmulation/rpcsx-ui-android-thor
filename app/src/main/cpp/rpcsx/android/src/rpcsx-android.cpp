@@ -20,6 +20,7 @@
 #include "Emu/RSX/RSXThread.h"
 #include "Emu/RSX/VK/VKGSRender.h"
 #include "Emu/localized_string_id.h"
+#include "Emu/savestate_utils.hpp"
 #include "Emu/system_config.h"
 #include "Emu/system_config_types.h"
 #include "Emu/system_progress.hpp"
@@ -96,6 +97,9 @@ struct AtExit {
 
 static bool g_initialized;
 static std::atomic<ANativeWindow *> g_native_window;
+static std::atomic<bool> g_thor_fast_forward_enabled{false};
+static std::atomic<int> g_thor_fast_forward_previous_clocks_scale{100};
+static constexpr int k_thor_fast_forward_clocks_scale = 200;
 
 extern std::string g_android_executable_dir;
 extern std::string g_android_config_dir;
@@ -533,6 +537,7 @@ static std::pair<std::string, std::u32string> g_strings[] = {
     MAKE_STRING(HOME_MENU_EXIT_GAME, "Exit Game"),
     MAKE_STRING(HOME_MENU_RESUME, "Resume Game"),
     MAKE_STRING(HOME_MENU_CHEATS, "Cheats"),
+    MAKE_STRING(HOME_MENU_FAST_FORWARD_2X, "Fast Forward 2x"),
     MAKE_STRING(HOME_MENU_SHOW_FPS, "Show FPS"),
     MAKE_STRING(HOME_MENU_NO_CHEATS, "No cheats for this game"),
     MAKE_STRING(HOME_MENU_CHEAT_RESTART_REQUIRED,
@@ -665,6 +670,7 @@ static std::pair<std::string, std::u32string> g_strings[] = {
     MAKE_STRING(HOME_MENU_SAVESTATE_SAVE, "Save Emulation State"),
     MAKE_STRING(HOME_MENU_SAVESTATE_AND_EXIT, "Save Emulation State And Exit"),
     MAKE_STRING(HOME_MENU_RELOAD_SAVESTATE, "Reload Last Emulation State"),
+    MAKE_STRING(HOME_MENU_NO_SAVESTATE, "No savestate for this game"),
     MAKE_STRING(HOME_MENU_RECORDING, "Start/Stop Recording"),
     MAKE_STRING(HOME_MENU_TROPHIES, "Trophies"),
     MAKE_STRING(HOME_MENU_TROPHY_HIDDEN_TITLE, "Hidden trophy"),
@@ -2009,6 +2015,79 @@ extern "C" void _rpcsx_openHomeMenu() {
   if (auto padThread = pad::get_pad_thread(true)) {
     padThread->open_home_menu();
   }
+}
+
+static bool rpcsx_set_fast_forward_enabled(bool enabled) {
+  if (enabled) {
+    const bool wasEnabled = g_thor_fast_forward_enabled.exchange(true);
+    if (!wasEnabled) {
+      const int previousScale = g_cfg.core.clocks_scale.get();
+      g_thor_fast_forward_previous_clocks_scale.store(previousScale);
+      rpcsx_android.notice("Thor fast forward speedhack enabled: Clocks scale %d -> %d",
+                           previousScale, k_thor_fast_forward_clocks_scale);
+    }
+
+    g_cfg.core.clocks_scale.set(k_thor_fast_forward_clocks_scale);
+  } else {
+    const bool wasEnabled = g_thor_fast_forward_enabled.exchange(false);
+    if (wasEnabled) {
+      const int previousScale = g_thor_fast_forward_previous_clocks_scale.load();
+      g_cfg.core.clocks_scale.set(previousScale);
+      rpcsx_android.notice("Thor fast forward speedhack disabled: Clocks scale restored to %d",
+                           previousScale);
+    }
+  }
+
+  return g_thor_fast_forward_enabled.load();
+}
+
+extern "C" bool _rpcsx_isFastForwardEnabled() {
+  return g_thor_fast_forward_enabled.load();
+}
+
+extern "C" bool _rpcsx_setFastForwardEnabled(bool enabled) {
+  return rpcsx_set_fast_forward_enabled(enabled);
+}
+
+extern "C" bool _rpcsx_toggleFastForward() {
+  return rpcsx_set_fast_forward_enabled(!g_thor_fast_forward_enabled.load());
+}
+
+static bool rpcsx_can_use_savestate_hotkey() {
+  return !Emu.GetTitleID().empty() &&
+         (Emu.IsRunning() || Emu.GetStatus(false) == system_state::paused);
+}
+
+extern "C" bool _rpcsx_saveState() {
+  if (!rpcsx_can_use_savestate_hotkey()) {
+    rpcsx_android.warning("Thor hotkey save state ignored: emulator is not running a title");
+    return false;
+  }
+
+  rpcsx_android.notice("Thor hotkey save state requested");
+  Emu.CallFromMainThread([]() {
+    if (g_cfg.savestate.suspend_emu.get()) {
+      rpcsx_android.notice("Thor hotkey save state: forcing continuous savestate mode");
+      g_cfg.savestate.suspend_emu.set(false);
+    }
+
+    Emu.after_kill_callback = []() { Emu.Restart(); };
+    Emu.SetContinuousMode(true);
+    Emu.Kill(false, true);
+  });
+
+  return true;
+}
+
+extern "C" bool _rpcsx_loadState() {
+  if (!boot_last_savestate(true)) {
+    rpcsx_android.warning("Thor hotkey load state ignored: no compatible savestate");
+    return false;
+  }
+
+  rpcsx_android.notice("Thor hotkey load state requested");
+  Emu.CallFromMainThread([]() { boot_last_savestate(false); });
+  return true;
 }
 
 extern "C" std::string _rpcsx_getTitleId() { return Emu.GetTitleID(); }

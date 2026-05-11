@@ -26,6 +26,18 @@ import kotlin.concurrent.thread
 import kotlin.math.abs
 
 class RPCSXActivity : Activity() {
+    private enum class SelectStickHotkey {
+        None,
+        Up,
+        Down
+    }
+
+    private companion object {
+        const val SELECT_STICK_HOTKEY_TRIGGER = 0.65f
+        const val SELECT_STICK_HOTKEY_RELEASE = 0.35f
+        const val SELECT_TAP_MS = 80L
+    }
+
     private lateinit var binding: ActivityRpcs3Binding
     private lateinit var unregisterUsbEventListener: () -> Unit
     private lateinit var sixaxisMotionController: SixaxisMotionController
@@ -34,6 +46,9 @@ class RPCSXActivity : Activity() {
     private var usesAxisR2 = false
     private var bootThread: Thread? = null
     private var homeMenuThread: Thread? = null
+    private var selectHeld = false
+    private var selectHotkeyConsumed = false
+    private var activeSelectStickHotkey = SelectStickHotkey.None
     @Volatile
     private var homeMenuLikelyOpen = false
     private val inputBindings by lazy { InputBindingPrefs.loadBindings() }
@@ -146,6 +161,55 @@ class RPCSXActivity : Activity() {
         return keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_BUTTON_MODE
     }
 
+    private fun isGamepadKeyEvent(event: KeyEvent): Boolean {
+        val gamepadSources = InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_DPAD
+        return event.source and gamepadSources != 0
+    }
+
+    private fun isGameplayHotkeyState(): Boolean {
+        return !homeMenuLikelyOpen &&
+            homeMenuThread?.isAlive != true &&
+            RPCSX.getState() == EmulatorState.Running
+    }
+
+    private fun runNativeHotkey(name: String, action: () -> Boolean) {
+        thread(name = "RPCSX-Hotkey-$name") {
+            val result = runCatching { action() }
+                .onFailure { Log.e("RPCSX Hotkeys", "$name failed", it) }
+                .getOrDefault(false)
+            Log.i("RPCSX Hotkeys", "$name result=$result")
+        }
+    }
+
+    private fun triggerFastForwardToggle() {
+        runNativeHotkey("FastForward") { RPCSX.instance.toggleFastForward() }
+    }
+
+    private fun triggerSaveState() {
+        runNativeHotkey("SaveState") { RPCSX.instance.saveState() }
+    }
+
+    private fun triggerLoadState() {
+        runNativeHotkey("LoadState") { RPCSX.instance.loadState() }
+    }
+
+    private fun sendSelectTapToGame() {
+        val selectBit = Digital1Flags.CELL_PAD_CTRL_SELECT.bit
+        gamePadState.digital[0] = gamePadState.digital[0] or selectBit
+        sendGamepadData()
+
+        binding.root.postDelayed({
+            gamePadState.digital[0] = gamePadState.digital[0] and selectBit.inv()
+            sendGamepadData()
+        }, SELECT_TAP_MS)
+    }
+
+    private fun clearSelectHotkeyState() {
+        selectHeld = false
+        selectHotkeyConsumed = false
+        activeSelectStickHotkey = SelectStickHotkey.None
+    }
+
     private fun handleOsdBack() {
         val state = RPCSX.getState()
         if (homeMenuLikelyOpen || homeMenuThread?.isAlive == true || state == EmulatorState.Paused) {
@@ -200,7 +264,34 @@ class RPCSXActivity : Activity() {
             return true
         }
 
-        if (event == null || (event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_DPAD)) == 0 || event.repeatCount != 0) {
+        if (event != null && isGamepadKeyEvent(event)) {
+            if (keyCode == KeyEvent.KEYCODE_BUTTON_SELECT && selectHeld) {
+                return true
+            }
+
+            if (keyCode == KeyEvent.KEYCODE_BUTTON_SELECT &&
+                event.repeatCount == 0 &&
+                isGameplayHotkeyState()
+            ) {
+                selectHeld = true
+                selectHotkeyConsumed = false
+                activeSelectStickHotkey = SelectStickHotkey.None
+                gamePadState.digital[0] =
+                    gamePadState.digital[0] and Digital1Flags.CELL_PAD_CTRL_SELECT.bit.inv()
+                sendGamepadData()
+                return true
+            }
+
+            if (selectHeld && keyCode == KeyEvent.KEYCODE_BUTTON_R1) {
+                if (event.repeatCount == 0 && isGameplayHotkeyState()) {
+                    selectHotkeyConsumed = true
+                    triggerFastForwardToggle()
+                }
+                return true
+            }
+        }
+
+        if (event == null || !isGamepadKeyEvent(event) || event.repeatCount != 0) {
             return super.onKeyDown(keyCode, event)
         }
         val padBit = keyCodeToPadBit(keyCode)
@@ -218,7 +309,27 @@ class RPCSXActivity : Activity() {
             return true
         }
 
-        if (event == null || event.source and (InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK or InputDevice.SOURCE_DPAD) == 0) {
+        if (event != null && isGamepadKeyEvent(event)) {
+            if (keyCode == KeyEvent.KEYCODE_BUTTON_SELECT && selectHeld) {
+                val shouldSendSelectTap = !selectHotkeyConsumed
+                clearSelectHotkeyState()
+                gamePadState.digital[0] =
+                    gamePadState.digital[0] and Digital1Flags.CELL_PAD_CTRL_SELECT.bit.inv()
+
+                if (shouldSendSelectTap) {
+                    sendSelectTapToGame()
+                } else {
+                    sendGamepadData()
+                }
+                return true
+            }
+
+            if (selectHeld && keyCode == KeyEvent.KEYCODE_BUTTON_R1) {
+                return true
+            }
+        }
+
+        if (event == null || !isGamepadKeyEvent(event)) {
             return super.onKeyUp(keyCode, event)
         }
 
@@ -236,6 +347,32 @@ class RPCSXActivity : Activity() {
     override fun onGenericMotionEvent(event: MotionEvent?): Boolean {
         if (event == null || event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK || event.action != MotionEvent.ACTION_MOVE) {
             return super.onGenericMotionEvent(event)
+        }
+
+        if (selectHeld && isGameplayHotkeyState()) {
+            val rightStickY = event.getAxisValue(MotionEvent.AXIS_RZ)
+            val hotkey = when {
+                rightStickY <= -SELECT_STICK_HOTKEY_TRIGGER -> SelectStickHotkey.Up
+                rightStickY >= SELECT_STICK_HOTKEY_TRIGGER -> SelectStickHotkey.Down
+                else -> SelectStickHotkey.None
+            }
+
+            if (hotkey != SelectStickHotkey.None && hotkey != activeSelectStickHotkey) {
+                selectHotkeyConsumed = true
+                activeSelectStickHotkey = hotkey
+                if (hotkey == SelectStickHotkey.Up) {
+                    triggerLoadState()
+                } else {
+                    triggerSaveState()
+                }
+            } else if (abs(rightStickY) < SELECT_STICK_HOTKEY_RELEASE) {
+                activeSelectStickHotkey = SelectStickHotkey.None
+            }
+
+            gamePadState.rightStickX = 128
+            gamePadState.rightStickY = 128
+            sendGamepadData()
+            return true
         }
 
         if (event.getAxisValue(MotionEvent.AXIS_LTRIGGER) > 0.1) {

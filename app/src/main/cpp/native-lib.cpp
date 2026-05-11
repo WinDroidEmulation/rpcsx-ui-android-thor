@@ -38,6 +38,11 @@ struct RPCSXApi {
   void (*kill)();
   void (*resume)();
   void (*openHomeMenu)();
+  bool (*saveState)();
+  bool (*loadState)();
+  bool (*isFastForwardEnabled)();
+  bool (*setFastForwardEnabled)(bool enabled);
+  bool (*toggleFastForward)();
   std::string (*getTitleId)();
   bool (*surfaceEvent)(JNIEnv *env, jobject surface, jint event);
   bool (*usbDeviceEvent)(int fd, int vendorId, int productId, int event);
@@ -106,6 +111,11 @@ struct RPCSXLibrary : RPCSXApi {
     result.kill = reinterpret_cast<decltype(kill)>(dlsym(handle, "_rpcsx_kill"));
     result.resume = reinterpret_cast<decltype(resume)>(dlsym(handle, "_rpcsx_resume"));
     result.openHomeMenu = reinterpret_cast<decltype(openHomeMenu)>(dlsym(handle, "_rpcsx_openHomeMenu"));
+    result.saveState = reinterpret_cast<decltype(saveState)>(dlsym(handle, "_rpcsx_saveState"));
+    result.loadState = reinterpret_cast<decltype(loadState)>(dlsym(handle, "_rpcsx_loadState"));
+    result.isFastForwardEnabled = reinterpret_cast<decltype(isFastForwardEnabled)>(dlsym(handle, "_rpcsx_isFastForwardEnabled"));
+    result.setFastForwardEnabled = reinterpret_cast<decltype(setFastForwardEnabled)>(dlsym(handle, "_rpcsx_setFastForwardEnabled"));
+    result.toggleFastForward = reinterpret_cast<decltype(toggleFastForward)>(dlsym(handle, "_rpcsx_toggleFastForward"));
     result.getTitleId = reinterpret_cast<decltype(getTitleId)>(dlsym(handle, "_rpcsx_getTitleId"));
     result.surfaceEvent = reinterpret_cast<decltype(surfaceEvent)>(dlsym(handle, "_rpcsx_surfaceEvent"));
     result.usbDeviceEvent = reinterpret_cast<decltype(usbDeviceEvent)>(dlsym(handle, "_rpcsx_usbDeviceEvent"));
@@ -273,6 +283,52 @@ extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_resume(JNIEnv *env,
 extern "C" JNIEXPORT void JNICALL Java_net_rpcsx_RPCSX_openHomeMenu(JNIEnv *env,
                                                                     jobject) {
   return rpcsxLib.openHomeMenu();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_net_rpcsx_RPCSX_saveState(JNIEnv *, jobject) {
+  if (rpcsxLib.saveState == nullptr) {
+    return false;
+  }
+
+  return rpcsxLib.saveState();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_net_rpcsx_RPCSX_loadState(JNIEnv *, jobject) {
+  if (rpcsxLib.loadState == nullptr) {
+    return false;
+  }
+
+  return rpcsxLib.loadState();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_net_rpcsx_RPCSX_isFastForwardEnabled(JNIEnv *, jobject) {
+  if (rpcsxLib.isFastForwardEnabled == nullptr) {
+    return false;
+  }
+
+  return rpcsxLib.isFastForwardEnabled();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_net_rpcsx_RPCSX_setFastForwardEnabled(JNIEnv *, jobject,
+                                           jboolean enabled) {
+  if (rpcsxLib.setFastForwardEnabled == nullptr) {
+    return false;
+  }
+
+  return rpcsxLib.setFastForwardEnabled(enabled == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_net_rpcsx_RPCSX_toggleFastForward(JNIEnv *, jobject) {
+  if (rpcsxLib.toggleFastForward == nullptr) {
+    return false;
+  }
+
+  return rpcsxLib.toggleFastForward();
 }
 
 extern "C" JNIEXPORT jstring JNICALL

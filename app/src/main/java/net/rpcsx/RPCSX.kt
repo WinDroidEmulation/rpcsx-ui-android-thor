@@ -92,6 +92,11 @@ class RPCSX {
     external fun kill()
     external fun resume()
     external fun openHomeMenu()
+    external fun saveState(): Boolean
+    external fun loadState(): Boolean
+    external fun isFastForwardEnabled(): Boolean
+    external fun setFastForwardEnabled(enabled: Boolean): Boolean
+    external fun toggleFastForward(): Boolean
     external fun loginUser(userId: String)
     external fun getUser(): String
     external fun getTitleId(): String

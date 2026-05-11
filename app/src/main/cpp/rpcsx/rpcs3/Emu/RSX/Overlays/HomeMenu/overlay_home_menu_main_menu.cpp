@@ -16,6 +16,11 @@
 extern atomic_t<bool> g_user_asked_for_recording;
 extern atomic_t<bool> g_user_asked_for_screenshot;
 
+#if defined(__ANDROID__)
+extern "C" bool _rpcsx_isFastForwardEnabled();
+extern "C" bool _rpcsx_toggleFastForward();
+#endif
+
 namespace rsx
 {
 	namespace overlays
@@ -41,6 +46,23 @@ namespace rsx
 				});
 
 			add_page(std::make_shared<home_menu_cheats>(x, y, width, height, use_separators, this));
+
+#if defined(__ANDROID__)
+			std::unique_ptr<overlay_element> fast_forward = std::make_unique<home_menu_toggle_entry>(get_localized_string(localized_string_id::HOME_MENU_FAST_FORWARD_2X), []
+				{
+					return _rpcsx_isFastForwardEnabled();
+				});
+			add_item(fast_forward, [this](pad_button btn) -> page_navigation
+				{
+					if (btn != pad_button::cross)
+						return page_navigation::stay;
+
+					const bool enabled = _rpcsx_toggleFastForward();
+					rsx_log.notice("User toggled Thor fast forward speedhack in home menu to %d", enabled);
+					refresh();
+					return page_navigation::stay;
+				});
+#endif
 
 			std::unique_ptr<overlay_element> show_fps = std::make_unique<home_menu_toggle_entry>(get_localized_string(localized_string_id::HOME_MENU_SHOW_FPS), []
 				{

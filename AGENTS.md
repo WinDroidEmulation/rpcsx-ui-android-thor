@@ -63,6 +63,7 @@ Useful verification commands:
 - The README is source-first: no big public APK download button, no support queue positioning.
 - In-game Back is handled by `RPCSXActivity`; it opens the native RPCSX Home Menu on a background thread and then acts as menu back/resume while the menu is up.
 - Gameplay Back behavior is hardcoded for Thor/fork builds: Android Back / Thor Back opens the native Home Menu, the core forces pause-during-Home-Menu on, and another Back press injects the native menu back/cancel action so nested pages back up and the root menu resumes gameplay.
+- Gameplay-only physical hotkeys are hardcoded for Thor controls: `Select + R1` toggles Fast Forward 2x, `Select + right stick down` quick-saves, and `Select + right stick up` quick-loads the latest per-game savestate. Select is delayed and sent as a normal tap only when no hotkey combo is completed.
 
 Install and launch:
 
@@ -97,11 +98,13 @@ If the app does not appear, verify the installed package:
 - The Android-side native export surface for the full core lives at `app/src/main/cpp/rpcsx/android/src/rpcsx-android.cpp`; the lightweight dynamic-loader wrapper lives at `app/src/main/cpp/native-lib.cpp`.
 - Localized Home Menu IDs live in `app/src/main/cpp/rpcsx/rpcs3/Emu/localized_string_id.h`.
 - FPS/performance overlay rendering/reset code lives around `app/src/main/cpp/rpcsx/rpcs3/Emu/RSX/Overlays/overlay_perf_metrics.cpp`.
-- The vendored Home Menu now has a `Cheats` page source at `app/src/main/cpp/rpcsx/rpcs3/Emu/RSX/Overlays/HomeMenu/overlay_home_menu_cheats.cpp` and a top-level `Show FPS` toggle after Resume.
+- The vendored Home Menu now has a `Cheats` page source at `app/src/main/cpp/rpcsx/rpcs3/Emu/RSX/Overlays/HomeMenu/overlay_home_menu_cheats.cpp`, plus top-level `Fast Forward 2x` and `Show FPS` toggles after Resume/Cheats.
 - These vendored Home Menu changes require the source-built/bundled core APK or another core build that includes these files. The default lightweight-wrapper build alone cannot change the native Home Menu.
-- The current Home Menu observed on Thor includes `Resume Game`, `Settings`, `Trophies`, `Take Screenshot`, `Start/Stop Recording`, `SaveState`, `Restart Game`, and `Exit Game`.
+- The current Home Menu on this fork should include `Resume Game`, `Cheats`, `Fast Forward 2x`, `Show FPS`, `Settings`, `Trophies`, `Take Screenshot`, `Start/Stop Recording`, `SaveState`, `Restart Game`, and `Exit Game`.
 - FPS display is already represented in the RPCSX config file under `Video -> Performance Overlay -> Enabled`. Through the Android settings bridge this should be treated as `Video@@Performance Overlay@@Enabled`.
 - If only a simple FPS toggle is requested, prefer toggling `Performance Overlay.Enabled` first. Avoid enabling debug overlays or graph-heavy performance views unless the user asks for more metrics.
+- Fast Forward 2x is a runtime guest-time speedhack: `_rpcsx_setFastForwardEnabled` changes `Core -> Clocks scale` to `200` and restores the previous value when disabled. It is not a frame-limit uncap, and it may break timing-sensitive games.
+- Hotkey save/load uses `_rpcsx_saveState` and `_rpcsx_loadState`; quick-save forces continuous savestate mode so gameplay resumes instead of saving-and-exiting.
 - Cheat toggles in the Home Menu should show only the currently running game's cheats, one row per cheat, with controller-friendly toggle behavior.
 - Cheat state is persisted in `config/patch_config.yml`; generated patch definitions live under `config/patches/TITLEID_patch.yml`.
 - For live cheat toggling, use the existing optional native hook `RPCSX.setPatchEnabled(hash, description, enabled)` when the current core exports it. If the hook is missing or the patch cannot apply live, the menu must clearly say the toggle takes effect after restart.
