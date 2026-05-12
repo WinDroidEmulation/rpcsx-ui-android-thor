@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Quiet", "Normal", "Verbose", "Status")]
+    [ValidateSet("Quiet", "Normal", "Verbose", "ReducedLoop", "Status")]
     [string]$Mode = "Status"
 )
 
@@ -34,6 +34,7 @@ switch ($Mode) {
     "Quiet" {
         Set-DeviceProp "debug.rpcsx.thor.logcat" "0"
         Set-DeviceProp "debug.rpcsx.thor.syscall_stats" "0"
+        Set-DeviceProp "debug.rpcsx.thor.spu_reduced_loop_detect" "0"
         Set-DeviceProp "log.tag.RPCS3" "S"
         Set-DeviceProp "log.tag.RPCSX-UI" "W"
         break
@@ -41,6 +42,7 @@ switch ($Mode) {
     "Normal" {
         Set-DeviceProp "debug.rpcsx.thor.logcat" "1"
         Set-DeviceProp "debug.rpcsx.thor.syscall_stats" "0"
+        Set-DeviceProp "debug.rpcsx.thor.spu_reduced_loop_detect" "0"
         Set-DeviceProp "log.tag.RPCS3" "I"
         Set-DeviceProp "log.tag.RPCSX-UI" "I"
         break
@@ -48,6 +50,15 @@ switch ($Mode) {
     "Verbose" {
         Set-DeviceProp "debug.rpcsx.thor.logcat" "1"
         Set-DeviceProp "debug.rpcsx.thor.syscall_stats" "1"
+        Set-DeviceProp "debug.rpcsx.thor.spu_reduced_loop_detect" "0"
+        Set-DeviceProp "log.tag.RPCS3" "V"
+        Set-DeviceProp "log.tag.RPCSX-UI" "V"
+        break
+    }
+    "ReducedLoop" {
+        Set-DeviceProp "debug.rpcsx.thor.logcat" "1"
+        Set-DeviceProp "debug.rpcsx.thor.syscall_stats" "0"
+        Set-DeviceProp "debug.rpcsx.thor.spu_reduced_loop_detect" "1"
         Set-DeviceProp "log.tag.RPCS3" "V"
         Set-DeviceProp "log.tag.RPCSX-UI" "V"
         break
@@ -56,5 +67,6 @@ switch ($Mode) {
 
 Get-DeviceProp "debug.rpcsx.thor.logcat"
 Get-DeviceProp "debug.rpcsx.thor.syscall_stats"
+Get-DeviceProp "debug.rpcsx.thor.spu_reduced_loop_detect"
 Get-DeviceProp "log.tag.RPCS3"
 Get-DeviceProp "log.tag.RPCSX-UI"

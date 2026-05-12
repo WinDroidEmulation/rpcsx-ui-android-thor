@@ -25,6 +25,12 @@
 #include <optional>
 #include <unordered_set>
 
+#ifdef ANDROID
+#include <sys/system_properties.h>
+#else
+#include <cstdlib>
+#endif
+
 #include "rx/align.hpp"
 #include "util/v128.hpp"
 #include "util/simd.hpp"
@@ -69,6 +75,28 @@ struct span_less
 
 template <typename T>
 inline constexpr span_less<T> s_span_less{};
+
+static bool spu_reduced_loop_detect_only_enabled() noexcept
+{
+#ifdef ANDROID
+	char value[PROP_VALUE_MAX]{};
+	const int length = __system_property_get("debug.rpcsx.thor.spu_reduced_loop_detect", value);
+
+	if (length <= 0)
+	{
+		return false;
+	}
+#else
+	const char* value = std::getenv("RPCSX_SPU_REDUCED_LOOP_DETECT");
+
+	if (!value || !*value)
+	{
+		return false;
+	}
+#endif
+
+	return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+}
 
 // Move 4 args for calling native function from a GHC calling convention function
 #if defined(ARCH_X64)
@@ -5019,6 +5047,234 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 
 	u32 iterator_id_alloc = 0;
 
+	struct reduced_loop_candidate_t
+	{
+		u32 loop_pc = SPU_LS_SIZE;
+		u32 loop_end = SPU_LS_SIZE;
+		u32 blocks = 0;
+		u32 instructions = 0;
+		u32 supplemental_conditions = 0;
+		bool is_two_block_loop = false;
+	};
+
+	const bool detect_reduced_loops = spu_reduced_loop_detect_only_enabled() && should_search_patterns;
+	std::map<u32, reduced_loop_candidate_t> reduced_loop_candidates;
+
+	auto get_reduced_loop_block_targets = [&](u32 pc) -> std::span<u32>
+	{
+		if (m_block_info[pc / 4])
+		{
+			if (auto found = m_bbs.find(pc); found != m_bbs.end())
+			{
+				return found->second.targets;
+			}
+		}
+
+		return {};
+	};
+
+	auto get_reduced_loop_block_preds = [&](u32 pc) -> std::span<u32>
+	{
+		if (m_block_info[pc / 4])
+		{
+			if (auto found = m_bbs.find(pc); found != m_bbs.end())
+			{
+				return found->second.preds;
+			}
+		}
+
+		return {};
+	};
+
+	auto inspect_reduced_loop_candidate = [&](u32 bpc, bool is_multi_block) -> std::optional<reduced_loop_candidate_t>
+	{
+		const auto body_found = m_bbs.find(bpc);
+		if (body_found == m_bbs.end() || !m_block_info[bpc / 4] || body_found->second.size <= 2)
+		{
+			return {};
+		}
+
+		u32 first_pred_of_loop = SPU_LS_SIZE;
+		for (u32 pred : get_reduced_loop_block_preds(bpc))
+		{
+			if (is_multi_block ? pred >= bpc : pred == bpc)
+			{
+				first_pred_of_loop = std::min<u32>(pred, first_pred_of_loop);
+			}
+		}
+
+		if (first_pred_of_loop == SPU_LS_SIZE)
+		{
+			return {};
+		}
+
+		const auto connect_found = m_bbs.find(first_pred_of_loop);
+		if (connect_found == m_bbs.end())
+		{
+			return {};
+		}
+
+		const auto& bb_connect = connect_found->second;
+		u32 targets_count = 0;
+		bool has_connector_target = false;
+
+		for (u32 target : get_reduced_loop_block_targets(first_pred_of_loop))
+		{
+			has_connector_target = true;
+			targets_count++;
+
+			if (first_pred_of_loop == bpc)
+			{
+				continue;
+			}
+
+			if (target != bpc && target != first_pred_of_loop + bb_connect.size * 4)
+			{
+				return {};
+			}
+		}
+
+		if (!has_connector_target || targets_count > 2)
+		{
+			return {};
+		}
+
+		const bool is_two_block_loop = targets_count == 1;
+		u32 expected_sup_conds = 0;
+		u32 blocks = 0;
+		u32 instructions = 0;
+		bool valid = false;
+
+		for (u32 block_pc = bpc;;)
+		{
+			const auto found = m_bbs.find(block_pc);
+			if (found == m_bbs.end() || !m_block_info[block_pc / 4])
+			{
+				return {};
+			}
+
+			const auto& block = found->second;
+			const u32 cond_next = block_pc + block.size * 4;
+			bool target_is_next = false;
+			bool is_end = false;
+			targets_count = 0;
+			blocks++;
+			instructions += block.size;
+
+			for (u32 target : get_reduced_loop_block_targets(block_pc))
+			{
+				targets_count++;
+
+				if (target == cond_next)
+				{
+					target_is_next = true;
+				}
+
+				if (target <= block_pc && target > bpc)
+				{
+					return {};
+				}
+
+				if (target == bpc)
+				{
+					is_end = true;
+				}
+			}
+
+			if (targets_count > 2)
+			{
+				return {};
+			}
+
+			if (cond_next == first_pred_of_loop && is_two_block_loop)
+			{
+				valid = true;
+				break;
+			}
+
+			if (!target_is_next)
+			{
+				return {};
+			}
+
+			valid = true;
+			if (bpc == first_pred_of_loop || is_end)
+			{
+				break;
+			}
+
+			if (targets_count == 2)
+			{
+				expected_sup_conds++;
+			}
+
+			block_pc = cond_next;
+		}
+
+		if (!valid || expected_sup_conds != 0)
+		{
+			return {};
+		}
+
+		const auto check_index = (bpc - entry_point) / 4;
+		const auto& bb_body = body_found->second;
+		if (bpc >= entry_point && check_index < result.data.size() && bb_body.size > 2)
+		{
+			const usz first = check_index;
+			const usz pre_branch = first + bb_body.size - 2;
+			if (pre_branch < result.data.size())
+			{
+				const spu_opcode_t op{std::bit_cast<be_t<u32>>(::at32(result.data, pre_branch))};
+				const spu_opcode_t op2{std::bit_cast<be_t<u32>>(::at32(result.data, first))};
+
+				switch (g_spu_itype.decode(op.opcode))
+				{
+				case spu_itype::RDCH: if (op.ra != SPU_RdDec) return {}; break;
+				case spu_itype::RCHCNT: return {};
+				default: break;
+				}
+
+				switch (g_spu_itype.decode(op2.opcode))
+				{
+				case spu_itype::RDCH: if (op2.ra != SPU_RdDec) return {}; break;
+				case spu_itype::RCHCNT: return {};
+				default: break;
+				}
+			}
+		}
+
+		return reduced_loop_candidate_t
+		{
+			.loop_pc = bpc,
+			.loop_end = first_pred_of_loop,
+			.blocks = blocks,
+			.instructions = instructions,
+			.supplemental_conditions = expected_sup_conds,
+			.is_two_block_loop = is_two_block_loop,
+		};
+	};
+
+	if (detect_reduced_loops)
+	{
+		for (const auto& [pc, block] : m_bbs)
+		{
+			if (!m_block_info[pc / 4])
+			{
+				continue;
+			}
+
+			if (auto candidate = inspect_reduced_loop_candidate(pc, false))
+			{
+				reduced_loop_candidates.try_emplace(candidate->loop_pc, *candidate);
+			}
+
+			if (auto candidate = inspect_reduced_loop_candidate(pc, true))
+			{
+				reduced_loop_candidates.try_emplace(candidate->loop_pc, *candidate);
+			}
+		}
+	}
+
 	for (u32 wf = 0, wi = 0, wa = entry_point, bpc = wa; wf <= 1;)
 	{
 		const bool is_form_block = wf == 0;
@@ -7120,6 +7376,22 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 		sha1_update(&ctx, reinterpret_cast<const u8*>(result.data.data()), result.data.size() * 4);
 		sha1_finish(&ctx, output);
 		fmt::append(func_hash, "%s", fmt::base57(output));
+	}
+
+	if (detect_reduced_loops && !reduced_loop_candidates.empty())
+	{
+		for (const auto& [loop_pc, candidate] : reduced_loop_candidates)
+		{
+			spu_log.notice("Reduced Loop Candidate (detect-only): loop_pc=0x%05x, loop_end=0x%05x, two_block=%u, blocks=%u, inst=%u, sup_conds=%u, entry=0x%05x-%s",
+				loop_pc,
+				candidate.loop_end,
+				candidate.is_two_block_loop,
+				candidate.blocks,
+				candidate.instructions,
+				candidate.supplemental_conditions,
+				entry_point,
+				func_hash);
+		}
 	}
 
 	for (const auto& [pc_commited, pattern] : atomic16_all)
