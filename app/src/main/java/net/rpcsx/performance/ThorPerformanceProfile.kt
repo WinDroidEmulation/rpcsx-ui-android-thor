@@ -8,7 +8,7 @@ import net.rpcsx.utils.GeneralSettings
 
 object ThorPerformanceProfile {
     private const val TAG = "ThorPerformanceProfile"
-    private const val PROFILE_VERSION = 4
+    private const val PROFILE_VERSION = 5
     private const val PROFILE_PREF = "thor_compile_profile_version"
     private const val PERFORMANCE_CORE_MASK = 0xF8
 
@@ -60,6 +60,7 @@ object ThorPerformanceProfile {
         setSetting("Core@@LLVM Precompilation", "false", "LLVM Precompilation", changed, failed)
         setSetting("Core@@SPU Cache", "true", "SPU Cache", changed, failed)
         setSetting("Core@@Use LLVM CPU", "\"cortex-a78\"", "Use LLVM CPU", changed, failed)
+        setSetting("Video@@Disable On-Disk Shader Cache", "false", "On-Disk Shader Cache", changed, failed)
 
         if (failed.isEmpty()) {
             GeneralSettings[PROFILE_PREF] = PROFILE_VERSION

@@ -19,12 +19,14 @@ object GameCacheRepository {
         val exists: Boolean,
         val bytes: Long,
         val ppuEntries: Int,
+        val spuEntries: Int,
+        val shaderEntries: Int,
         val totalEntries: Int,
         val updatedAtMillis: Long?,
         val prepareSupported: Boolean
     ) {
         val isWarm: Boolean
-            get() = exists && ppuEntries > 0 && bytes > 0
+            get() = exists && bytes > 0 && (ppuEntries > 0 || spuEntries > 0 || shaderEntries > 0)
     }
 
     fun statusForGame(game: Game): CacheStatus {
@@ -40,6 +42,8 @@ object GameCacheRepository {
                 exists = false,
                 bytes = 0L,
                 ppuEntries = 0,
+                spuEntries = 0,
+                shaderEntries = 0,
                 totalEntries = 0,
                 updatedAtMillis = null,
                 prepareSupported = prepareSupported
@@ -48,6 +52,8 @@ object GameCacheRepository {
 
         var bytes = 0L
         var ppuEntries = 0
+        var spuEntries = 0
+        var shaderEntries = 0
         var totalEntries = 0
         var updatedAt = cacheDir.lastModified().takeIf { it > 0 }
 
@@ -59,6 +65,12 @@ object GameCacheRepository {
             totalEntries++
             if (file.name.startsWith("ppu-", ignoreCase = true)) {
                 ppuEntries++
+            }
+            if (file.name.startsWith("spu-", ignoreCase = true)) {
+                spuEntries++
+            }
+            if (file.isFile && file.isInsideDirectory("shaders_cache")) {
+                shaderEntries++
             }
             if (file.isFile) {
                 bytes += file.length()
@@ -74,6 +86,8 @@ object GameCacheRepository {
             exists = true,
             bytes = bytes,
             ppuEntries = ppuEntries,
+            spuEntries = spuEntries,
+            shaderEntries = shaderEntries,
             totalEntries = totalEntries,
             updatedAtMillis = updatedAt,
             prepareSupported = prepareSupported
@@ -104,7 +118,7 @@ object GameCacheRepository {
                     progressId,
                     -1,
                     0,
-                    "This RPCSX core cannot prepare PPU/SPU cache in the background yet. Start the game once to build cache during boot."
+                    "This RPCSX core cannot prepare compiled cache in the background yet. Start the game once to build CPU cache during boot and shader cache while playing."
                 )
             }
             return
@@ -157,4 +171,15 @@ object GameCacheRepository {
 
     private fun gameCacheDir(titleId: String): File =
         File(RPCSX.rootDirectory, "cache/cache/$titleId")
+
+    private fun File.isInsideDirectory(directoryName: String): Boolean {
+        var parent = parentFile
+        while (parent != null) {
+            if (parent.name.equals(directoryName, ignoreCase = true)) {
+                return true
+            }
+            parent = parent.parentFile
+        }
+        return false
+    }
 }

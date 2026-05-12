@@ -215,13 +215,13 @@ fun GameDetailScreen(
                         }
                     },
                     onPrepareCache = {
-                        cacheMessage = "Preparing cache."
+                        cacheMessage = "Preparing compiled cache."
                         GameCacheRepository.prepareGameCache(context, game) { status ->
                             cacheStatus = status
                             cacheMessage = if (status.isWarm) {
-                                "Cache is ready."
+                                "Compiled cache is ready."
                             } else {
-                                "Cache was not built yet."
+                                "Compiled cache was not built yet."
                             }
                         }
                     },
@@ -230,7 +230,7 @@ fun GameDetailScreen(
                             cacheStatus = withContext(Dispatchers.IO) {
                                 GameCacheRepository.clearGameCache(game)
                             }
-                            cacheMessage = "Cache cleared."
+                            cacheMessage = "Compiled cache cleared."
                         }
                     }
                 )
@@ -275,17 +275,17 @@ private fun CacheSummaryCard(
 ) {
     val title = when {
         status == null -> "Checking Cache"
-        status.titleId == null -> "Cache"
-        status.isWarm -> "Cache Ready"
-        status.exists -> "Cache Started"
-        else -> "Cache Not Built"
+        status.titleId == null -> "Compiled Cache"
+        status.isWarm -> "Compiled Cache Ready"
+        status.exists -> "Compiled Cache Started"
+        else -> "Compiled Cache Not Built"
     }
     val detail = when {
-        status == null -> "Checking PPU/SPU cache state."
+        status == null -> "Checking PPU/SPU/shader cache state."
         status.titleId == null -> "No title ID detected yet."
         status.isWarm -> "${GameCacheRepository.formatBytes(status.bytes)} cached for ${status.titleId}."
-        status.exists -> "Cache folder exists for ${status.titleId}, but no PPU entries were found yet."
-        else -> "Start this game once to build its PPU/SPU cache during boot."
+        status.exists -> "Cache folder exists for ${status.titleId}, but no PPU/SPU/shader entries were found yet."
+        else -> "Start this game once to build its PPU/SPU/shader cache during boot and play."
     }
     val canPrepare = status?.prepareSupported == true && status.titleId != null
     val canClear = status?.exists == true
@@ -310,14 +310,14 @@ private fun CacheSummaryCard(
 
             if (status != null && status.titleId != null) {
                 Text(
-                    "PPU entries: ${status.ppuEntries}; total files: ${status.totalEntries}.",
+                    "PPU: ${status.ppuEntries}; SPU: ${status.spuEntries}; shaders: ${status.shaderEntries}; total entries: ${status.totalEntries}.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
 
             if (status != null && !status.prepareSupported) {
                 Text(
-                    "Background prepare needs a newer RPCSX core. For now, boot once, close the game, then come back here.",
+                    "Background prepare needs a newer RPCSX core. Shader cache warms only while the game renders new effects.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }

@@ -18,7 +18,7 @@
 - The vendored tree has its own `UPSTREAM.md` with the upstream commit and sync notes.
 - Refresh the core source with `tools/sync_rpcsx_core.ps1` from the Android repo root; keep local Thor experiment changes in this repo.
 - Hydrate core dependencies with `tools/hydrate_rpcsx_core_deps.ps1`. On Windows, keep `git config core.longpaths true` because SPIRV-Cross and LLVM contain long test/reference paths.
-- Do not commit generated native build output, downloaded prebuilt tarballs, APKs, `.cxx`, Gradle caches, or runtime PPU/SPU caches.
+- Do not commit generated native build output, downloaded prebuilt tarballs, APKs, `.cxx`, Gradle caches, or runtime PPU/SPU/shader caches.
 - The default Gradle app build uses `app/src/main/cpp/CMakeLists.txt` for the Android JNI wrapper and now bundles the vendored full core by default. The full core Android build entry is `app/src/main/cpp/rpcsx/android/CMakeLists.txt`.
 - Java loads the wrapper as `librpcsx-ui-jni.so`. A source-built/bundled core should package as `librpcsx-android.so`, and `MainActivity` will use it when no custom/downloaded core path is configured.
 - In this fork, `MainActivity` treats a valid bundled `librpcsx-android.so` as authoritative and rewrites `rpcsx_library` to the APK native-lib path on startup. This keeps stale saved `/data/app/...` paths or old updater cores from hiding local source-core changes or triggering install prompts on Thor.
@@ -152,9 +152,10 @@ If the app does not appear, verify the installed package:
 ## Per-Game Cache Workflow
 
 - Android-side cache status lives at `app/src/main/java/net/rpcsx/performance/GameCacheRepository.kt`.
-- Game detail reads `cache/cache/TITLEID` under `RPCSX.rootDirectory`, counts PPU entries, shows cache size, and exposes refresh/clear controls.
-- Compiled-cache storage selection lives at `app/src/main/java/net/rpcsx/performance/CacheStorageManager.kt` and is exposed from Settings as `Cache Storage`.
-- The core still expects `RPCSX.rootDirectory/cache/cache`; SD-card selection redirects that app-owned compiled-cache path with a symlink to the selected app-owned external-files directory.
+- Game detail reads `cache/cache/TITLEID` under `RPCSX.rootDirectory`, counts PPU/SPU/shader entries, shows cache size, and exposes refresh/clear controls.
+- RPCSX/RPCS3 stores RSX shader cache below the PPU cache path (`.../ppu-*/shaders_cache/`), so the same per-game compiled-cache root must cover PPU, SPU, and shaders.
+- Compiled-cache storage selection lives at `app/src/main/java/net/rpcsx/performance/CacheStorageManager.kt` and is exposed from Settings as `Compiled Cache Storage`.
+- The core still expects `RPCSX.rootDirectory/cache/cache`; SD-card selection redirects that app-owned compiled-cache path with a symlink to the selected app-owned external-files directory, covering PPU/SPU/shader cache together.
 - Do not offer arbitrary SAF folders for emulator cache until the native core supports URI/document access or a stable cache-directory setting. App-owned storage roots are the safe selectable locations.
 - Switching compiled-cache storage can migrate existing cache data and should warn users that SD card cache may be slower and large moves can take minutes.
 - The native wrapper has an optional `_rpcsx_preparePpuCache` hook surfaced as `RPCSX.supportsPpuCachePreparation()` and `RPCSX.preparePpuCache(...)`.
@@ -190,7 +191,7 @@ Use detected topology for presets. Do not assume every Snapdragon 8 Gen 2 device
 
 - Already cleaned up Android-side hotspots: folder scan queues use `ArrayDeque`, URI file copy uses a larger stream buffer, ISO metadata avoids duplicate directory parsing, patch status file checks are cached, and `games.json` saves are debounced.
 - Current Thor compile preset lives at `app/src/main/java/net/rpcsx/performance/ThorPerformanceProfile.kt`.
-- The preset is applied on AYN/Thor/kalama targets: `Max LLVM Compile Threads=4`, `LLVM Precompilation=true`, `SPU Cache=true`, and `Use LLVM CPU=cortex-a78`.
+- The preset is applied on AYN/Thor/kalama targets: `Max LLVM Compile Threads=2`, `LLVM Precompilation=false`, `SPU Cache=true`, `Use LLVM CPU=cortex-a78`, and on-disk shader cache enabled.
 - Do not reintroduce an Android startup override that writes `Use LLVM CPU = cortex-a34`; that silently downgrades Thor JIT codegen and can undo the profile on later launches. Do not let this vendored LLVM use `cortex-a510`, `cortex-a710`, `cortex-a715`, or `cortex-x3` on Thor unless Android reports SVE: those Armv9 CPU definitions enable SVE/SVE2 in LLVM while Snapdragon 8 Gen 2 reports dotprod/i8mm/bf16 but not SVE.
 - Native wrapper affinity helper: `RPCSX.setProcessAffinityMask(0xF8)` pins current app/native threads to Thor CPUs `3-7` where Android permits it. MainActivity applies it before core initialization so early native threads can inherit the performance-core mask. This is a first-pass compile relief, not a replacement for native PPU/SPU/RSX per-class affinity.
 - The first `Thor Feature Doctor` slice lives in `_rpcsx_systemInfo()` inside `app/src/main/cpp/rpcsx/android/src/rpcsx-android.cpp`; the existing System Info dialog now reports configured LLVM CPU, fallback CPU, AArch64 per-core names, and Android HWCAP/HWCAP2 feature flags.
@@ -201,7 +202,7 @@ Use detected topology for presets. Do not assume every Snapdragon 8 Gen 2 device
 - Sixaxis motion preference lives in `SixaxisMotionPrefs`, Android sensor capture lives in `SixaxisMotionController`, and the JNI wrapper looks for `_rpcsx_overlayPadMotionData`. Current downloaded cores may not export it; keep the matching core patch in `core-patches/` until core builds include it.
 - Next low-risk Android work: cache cheat badge lookups per game title ID, add stale-cache/core-version labeling, and keep heavy global cheat expansion off Base unless requested.
 - Next native/core work: implement/export `_rpcsx_preparePpuCache`, CPU topology, PPU/SPU/RSX affinity masks, and authoritative cache status. UI-only changes cannot truly pin native compile threads.
-- Default PPU compile experiment for Base/Pro/Max: Max LLVM compile threads `4`, heavy mask `0xF8`, then benchmark `3`, `5`, and `6`.
+- Default PPU compile experiment for Base/Pro/Max: Max LLVM compile threads `2`, full PPU precompile off, heavy mask `0xF8`; benchmark higher worker counts only as an opt-in cache-builder experiment with memory logs running.
 
 ## Current Cheat/Test Fixture
 

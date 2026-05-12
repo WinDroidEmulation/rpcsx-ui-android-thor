@@ -566,9 +566,9 @@ fun SettingsScreen(
     fun switchCacheStorage(location: CacheStorageManager.Location) {
         showCacheStorageDialog = false
         val warning = if (location.removable) {
-            "SD-card compiled cache can save internal space, but it may be slower and can cause shader/PPU/SPU cache stutter. Close running games first. Moving a large cache can take minutes."
+            "SD-card compiled cache can save internal space, but shader/PPU/SPU cache reads can stutter. Close running games first. Moving a large cache can take minutes."
         } else {
-            "Internal compiled cache is the fastest choice. Switching back may move cache files from SD storage and can take minutes if the cache is large."
+            "Internal compiled cache is the fastest choice for shader/PPU/SPU cache. Switching back may move cache files from SD storage and can take minutes if the cache is large."
         }
 
         AlertDialogQueue.showDialog(
@@ -672,7 +672,7 @@ fun SettingsScreen(
                     status == null -> "Checking cache storage."
                     else -> buildString {
                         append(status.activeLocation.label)
-                        append("; ")
+                        append("; PPU/SPU/shaders; ")
                         append(CacheStorageManager.formatBytes(status.bytes))
                         append(" used; ")
                         append(CacheStorageManager.formatBytes(status.activeLocation.freeBytes))
@@ -692,7 +692,7 @@ fun SettingsScreen(
                 }
 
                 HomePreference(
-                    title = "Cache Storage",
+                    title = "Compiled Cache Storage",
                     icon = { PreferenceIcon(icon = painterResource(R.drawable.ic_folder)) },
                     description = description,
                     onClick = {
@@ -821,11 +821,11 @@ private fun CacheStorageDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Cache Storage") },
+        title = { Text("Compiled Cache Storage") },
         text = {
             Column {
                 Text(
-                    "Internal is fastest. SD card compiled cache is for saving space, and may make cache-heavy boot or shader work slower."
+                    "This stores PPU, SPU, and RSX shader cache in the selected app storage. Internal is fastest. SD card is for saving space, and may make cache-heavy boot or shader work slower."
                 )
                 Spacer(Modifier.height(12.dp))
                 if (status == null) {
