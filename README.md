@@ -121,6 +121,7 @@ Base/Pro/Max should use the same CPU and GPU presets. Pro/Max mostly let us keep
 - [RPCS3 automatic game settings notes](report/2026-05-10-rpcs3-auto-game-settings.md)
 - [AYN Thor Base/Pro/Max Snapdragon 8 Gen 2 target notes](report/2026-05-10-snapdragon-8-gen-2-thor-target.md)
 - [Markdown and Thor variant audit](report/2026-05-10-markdown-and-thor-variant-audit.md)
+- [Thor black screen debug pipeline](report/2026-05-11-thor-black-screen-debug-pipeline.md)
 
 ## Building
 
@@ -155,6 +156,24 @@ Expected debug APK name:
 ```text
 app\build\outputs\apk\debug\rpcsx-thor-experiment-debug.apk
 ```
+
+## Thor Debug Capture
+
+For a live debug session while playing on the handheld:
+
+```powershell
+.\tools\start_thor_debug_stream.ps1 -ClearLogcat -Launch -Label game-name
+.\tools\summarize_thor_debug_stream.ps1 -Latest
+.\tools\stop_thor_debug_stream.ps1 -Latest
+```
+
+For a one-shot capture after a problem is visible:
+
+```powershell
+.\tools\collect_thor_debug.ps1 -Label game-name
+```
+
+Debug streams and captures are written to ignored `debug-captures/` folders for local analysis.
 
 ## License
 
