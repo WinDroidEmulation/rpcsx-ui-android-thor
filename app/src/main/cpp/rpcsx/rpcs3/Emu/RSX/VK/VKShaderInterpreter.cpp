@@ -4,14 +4,96 @@
 #include "VKCommonPipelineLayout.h"
 #include "VKVertexProgram.h"
 #include "VKFragmentProgram.h"
+#include "Emu/System.h"
 #include "../Program/GLSLCommon.h"
 #include "../Program/ShaderInterpreter.h"
 #include "../rsx_methods.h"
+#include "../Overlays/Shaders/shader_loading_dialog.h"
 #include "VKHelpers.h"
 #include "VKRenderPass.h"
+#include <chrono>
+#include <thread>
 
 namespace vk
 {
+	namespace
+	{
+		std::vector<u64> get_interpreter_preload_variants()
+		{
+			using namespace program_common::interpreter;
+
+			const std::array<u64, 11> fs_bases =
+				{
+					0,
+					COMPILER_OPT_ENABLE_TEXTURES,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_F32_EXPORT,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_FLOW_CTRL,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_PACKING,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_KIL,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_DEPTH_EXPORT,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_FLOW_CTRL | COMPILER_OPT_ENABLE_PACKING,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_F32_EXPORT | COMPILER_OPT_ENABLE_FLOW_CTRL | COMPILER_OPT_ENABLE_PACKING,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_F32_EXPORT | COMPILER_OPT_ENABLE_FLOW_CTRL | COMPILER_OPT_ENABLE_PACKING | COMPILER_OPT_ENABLE_KIL,
+					COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_F32_EXPORT | COMPILER_OPT_ENABLE_FLOW_CTRL | COMPILER_OPT_ENABLE_PACKING | COMPILER_OPT_ENABLE_DEPTH_EXPORT,
+				};
+
+			const std::array<u64, 6> alpha_tests =
+				{
+					COMPILER_OPT_ENABLE_ALPHA_TEST_GE,
+					COMPILER_OPT_ENABLE_ALPHA_TEST_G,
+					COMPILER_OPT_ENABLE_ALPHA_TEST_LE,
+					COMPILER_OPT_ENABLE_ALPHA_TEST_L,
+					COMPILER_OPT_ENABLE_ALPHA_TEST_EQ,
+					COMPILER_OPT_ENABLE_ALPHA_TEST_NE,
+				};
+
+			std::vector<u64> result;
+			result.reserve((fs_bases.size() + alpha_tests.size() * 2) * 2);
+
+			const auto add_vs_variants = [&result](u64 fs_opts)
+			{
+				result.push_back(fs_opts);
+				result.push_back(fs_opts | COMPILER_OPT_ENABLE_INSTANCING);
+			};
+
+			for (const u64 fs_opts : fs_bases)
+			{
+				add_vs_variants(fs_opts);
+			}
+
+			for (const u64 alpha_test : alpha_tests)
+			{
+				add_vs_variants(COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_F32_EXPORT | alpha_test);
+				add_vs_variants(COMPILER_OPT_ENABLE_TEXTURES | COMPILER_OPT_ENABLE_F32_EXPORT | COMPILER_OPT_ENABLE_FLOW_CTRL | COMPILER_OPT_ENABLE_PACKING | alpha_test);
+			}
+
+			std::sort(result.begin(), result.end());
+			result.erase(std::unique(result.begin(), result.end()), result.end());
+			return result;
+		}
+
+		std::vector<vk::pipeline_props> get_interpreter_preload_pipelines()
+		{
+			std::vector<vk::pipeline_props> pipe_properties;
+
+			vk::pipeline_props base_props{};
+			base_props.state.set_attachment_count(1);
+			base_props.state.enable_cull_face(VK_CULL_MODE_BACK_BIT);
+			base_props.state.set_primitive_type(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+			base_props.state.set_color_mask(0, true, true, true, true);
+			base_props.renderpass_key = vk::get_renderpass_key(VK_FORMAT_B8G8R8A8_UNORM);
+			pipe_properties.push_back(base_props);
+
+			base_props.state.enable_blend(0,
+				VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+				VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+				VK_BLEND_OP_ADD, VK_BLEND_OP_ADD);
+			pipe_properties.push_back(base_props);
+
+			return pipe_properties;
+		}
+	}
+
 	glsl::shader* shader_interpreter::build_vs(u64 compiler_options)
 	{
 		::glsl::shader_properties properties{};
@@ -71,37 +153,40 @@ namespace vk
 		vs->create(::glsl::program_domain::glsl_vertex_program, s);
 		vs->compile();
 
-		// Prepare input table
-		const auto& binding_table = vk::get_current_renderer()->get_pipeline_binding_table();
-		vk::glsl::program_input in;
+		if (m_vs_inputs.empty())
+		{
+			// Prepare input table
+			const auto& binding_table = vk::get_current_renderer()->get_pipeline_binding_table();
+			vk::glsl::program_input in;
 
-		in.location = binding_table.vertex_params_bind_slot;
-		in.domain = ::glsl::glsl_vertex_program;
-		in.name = "VertexContextBuffer";
-		in.type = vk::glsl::input_type_uniform_buffer;
-		m_vs_inputs.push_back(in);
+			in.location = binding_table.vertex_params_bind_slot;
+			in.domain = ::glsl::glsl_vertex_program;
+			in.name = "VertexContextBuffer";
+			in.type = vk::glsl::input_type_uniform_buffer;
+			m_vs_inputs.push_back(in);
 
-		in.location = binding_table.vertex_buffers_first_bind_slot;
-		in.name = "persistent_input_stream";
-		in.type = vk::glsl::input_type_texel_buffer;
-		m_vs_inputs.push_back(in);
+			in.location = binding_table.vertex_buffers_first_bind_slot;
+			in.name = "persistent_input_stream";
+			in.type = vk::glsl::input_type_texel_buffer;
+			m_vs_inputs.push_back(in);
 
-		in.location = binding_table.vertex_buffers_first_bind_slot + 1;
-		in.name = "volatile_input_stream";
-		in.type = vk::glsl::input_type_texel_buffer;
-		m_vs_inputs.push_back(in);
+			in.location = binding_table.vertex_buffers_first_bind_slot + 1;
+			in.name = "volatile_input_stream";
+			in.type = vk::glsl::input_type_texel_buffer;
+			m_vs_inputs.push_back(in);
 
-		in.location = binding_table.vertex_buffers_first_bind_slot + 2;
-		in.name = "vertex_layout_stream";
-		in.type = vk::glsl::input_type_texel_buffer;
-		m_vs_inputs.push_back(in);
+			in.location = binding_table.vertex_buffers_first_bind_slot + 2;
+			in.name = "vertex_layout_stream";
+			in.type = vk::glsl::input_type_texel_buffer;
+			m_vs_inputs.push_back(in);
 
-		in.location = binding_table.vertex_constant_buffers_bind_slot;
-		in.name = "VertexConstantsBuffer";
-		in.type = vk::glsl::input_type_uniform_buffer;
-		m_vs_inputs.push_back(in);
+			in.location = binding_table.vertex_constant_buffers_bind_slot;
+			in.name = "VertexConstantsBuffer";
+			in.type = vk::glsl::input_type_uniform_buffer;
+			m_vs_inputs.push_back(in);
 
-		// TODO: Bind textures if needed
+			// TODO: Bind textures if needed
+		}
 
 		auto ret = vs.get();
 		m_shader_cache[compiler_options].m_vs = std::move(vs);
@@ -224,27 +309,30 @@ namespace vk
 		fs->create(::glsl::program_domain::glsl_fragment_program, s);
 		fs->compile();
 
-		// Prepare input table
-		vk::glsl::program_input in;
-		in.location = binding_table.fragment_constant_buffers_bind_slot;
-		in.domain = ::glsl::glsl_fragment_program;
-		in.name = "FragmentConstantsBuffer";
-		in.type = vk::glsl::input_type_uniform_buffer;
-		m_fs_inputs.push_back(in);
-
-		in.location = binding_table.fragment_state_bind_slot;
-		in.name = "FragmentStateBuffer";
-		m_fs_inputs.push_back(in);
-
-		in.location = binding_table.fragment_texture_params_bind_slot;
-		in.name = "TextureParametersBuffer";
-		m_fs_inputs.push_back(in);
-
-		for (int i = 0, location = m_fragment_textures_start; i < 4; ++i, ++location)
+		if (m_fs_inputs.empty())
 		{
-			in.location = location;
-			in.name = std::string(type_names[i]) + "_array[16]";
+			// Prepare input table
+			vk::glsl::program_input in;
+			in.location = binding_table.fragment_constant_buffers_bind_slot;
+			in.domain = ::glsl::glsl_fragment_program;
+			in.name = "FragmentConstantsBuffer";
+			in.type = vk::glsl::input_type_uniform_buffer;
 			m_fs_inputs.push_back(in);
+
+			in.location = binding_table.fragment_state_bind_slot;
+			in.name = "FragmentStateBuffer";
+			m_fs_inputs.push_back(in);
+
+			in.location = binding_table.fragment_texture_params_bind_slot;
+			in.name = "TextureParametersBuffer";
+			m_fs_inputs.push_back(in);
+
+			for (int i = 0, location = m_fragment_textures_start; i < 4; ++i, ++location)
+			{
+				in.location = location;
+				in.name = std::string(type_names[i]) + "_array[16]";
+				m_fs_inputs.push_back(in);
+			}
 		}
 
 		auto ret = fs.get();
@@ -382,7 +470,11 @@ namespace vk
 
 	void shader_interpreter::destroy()
 	{
-		m_program_cache.clear();
+		{
+			std::lock_guard lock(m_program_cache_lock);
+			m_program_cache.clear();
+		}
+
 		m_descriptor_pool.destroy();
 
 		for (auto& fs : m_shader_cache)
@@ -406,7 +498,7 @@ namespace vk
 		}
 	}
 
-	glsl::program* shader_interpreter::link(const vk::pipeline_props& properties, u64 compiler_opt)
+	glsl::program* shader_interpreter::link(const vk::pipeline_props& properties, u64 compiler_opt, bool async, async_build_fn_callback async_callback)
 	{
 		glsl::shader *fs, *vs;
 		if (auto found = m_shader_cache.find(compiler_opt); found != m_shader_cache.end())
@@ -420,80 +512,42 @@ namespace vk
 			vs = build_vs(compiler_opt);
 		}
 
-		VkPipelineShaderStageCreateInfo shader_stages[2] = {};
-		shader_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		shader_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-		shader_stages[0].module = vs->get_handle();
-		shader_stages[0].pName = "main";
+		VkShaderModule module_handles[2] = {vs->get_handle(), fs->get_handle()};
+		const auto compiler_flags = async ? vk::pipe_compiler::COMPILE_DEFERRED : vk::pipe_compiler::COMPILE_INLINE;
 
-		shader_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-		shader_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-		shader_stages[1].module = fs->get_handle();
-		shader_stages[1].pName = "main";
-
-		std::vector<VkDynamicState> dynamic_state_descriptors =
+		auto callback = [this, key = pipeline_key{compiler_opt, properties}, async_callback](std::unique_ptr<glsl::program>& program)
+		{
+			if (!program)
 			{
-				VK_DYNAMIC_STATE_VIEWPORT,
-				VK_DYNAMIC_STATE_SCISSOR,
-				VK_DYNAMIC_STATE_LINE_WIDTH,
-				VK_DYNAMIC_STATE_BLEND_CONSTANTS,
-				VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-				VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-				VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-				VK_DYNAMIC_STATE_DEPTH_BIAS};
+				return;
+			}
 
-		if (vk::get_current_renderer()->get_depth_bounds_support())
-		{
-			dynamic_state_descriptors.push_back(VK_DYNAMIC_STATE_DEPTH_BOUNDS);
-		}
+			glsl::program* result = program.get();
+			{
+				std::lock_guard lock(m_program_cache_lock);
+				if (auto found = m_program_cache.find(key); found != m_program_cache.end())
+				{
+					result = found->second.get();
+				}
+				else
+				{
+					m_program_cache.emplace(key, std::move(program));
+				}
+			}
 
-		VkPipelineDynamicStateCreateInfo dynamic_state_info = {};
-		dynamic_state_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-		dynamic_state_info.pDynamicStates = dynamic_state_descriptors.data();
-		dynamic_state_info.dynamicStateCount = ::size32(dynamic_state_descriptors);
-
-		VkPipelineVertexInputStateCreateInfo vi = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-
-		VkPipelineViewportStateCreateInfo vp = {};
-		vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-		vp.viewportCount = 1;
-		vp.scissorCount = 1;
-
-		VkPipelineMultisampleStateCreateInfo ms = properties.state.ms;
-		ensure(ms.rasterizationSamples == VkSampleCountFlagBits((properties.renderpass_key >> 16) & 0xF)); // "Multisample state mismatch!"
-		if (ms.rasterizationSamples != VK_SAMPLE_COUNT_1_BIT)
-		{
-			// Update the sample mask pointer
-			ms.pSampleMask = &properties.state.temp_storage.msaa_sample_mask;
-		}
-
-		// Rebase pointers from pipeline structure in case it is moved/copied
-		VkPipelineColorBlendStateCreateInfo cs = properties.state.cs;
-		cs.pAttachments = properties.state.att_state;
-
-		VkPipelineTessellationStateCreateInfo ts = {};
-		ts.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
-
-		VkGraphicsPipelineCreateInfo info = {};
-		info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		info.pVertexInputState = &vi;
-		info.pInputAssemblyState = &properties.state.ia;
-		info.pRasterizationState = &properties.state.rs;
-		info.pColorBlendState = &cs;
-		info.pMultisampleState = &ms;
-		info.pViewportState = &vp;
-		info.pDepthStencilState = &properties.state.ds;
-		info.pTessellationState = &ts;
-		info.stageCount = 2;
-		info.pStages = shader_stages;
-		info.pDynamicState = &dynamic_state_info;
-		info.layout = m_shared_pipeline_layout;
-		info.basePipelineIndex = -1;
-		info.basePipelineHandle = VK_NULL_HANDLE;
-		info.renderPass = vk::get_renderpass(m_device, properties.renderpass_key);
+			if (async_callback)
+			{
+				async_callback(result);
+			}
+		};
 
 		auto compiler = vk::get_pipe_compiler();
-		auto program = compiler->compile(info, m_shared_pipeline_layout, vk::pipe_compiler::COMPILE_INLINE, {}, m_vs_inputs, m_fs_inputs);
+		auto program = compiler->compile(properties, module_handles, m_shared_pipeline_layout, compiler_flags, callback, m_vs_inputs, m_fs_inputs);
+		if (async)
+		{
+			return nullptr;
+		}
+
 		return program.release();
 	}
 
@@ -509,6 +563,99 @@ namespace vk
 	VkDescriptorSet shader_interpreter::allocate_descriptor_set()
 	{
 		return m_descriptor_pool.allocate(m_shared_descriptor_layout);
+	}
+
+	void shader_interpreter::preload(rsx::shader_loading_dialog* dlg)
+	{
+		const auto variants = get_interpreter_preload_variants();
+		if (variants.empty())
+		{
+			return;
+		}
+
+		if (dlg)
+		{
+			dlg->create("Precompiling Vulkan interpreter variants.\nPlease wait...", "Shader Compilation");
+			dlg->set_limit(0, ::size32(variants));
+			dlg->update_msg(0, "Building interpreter shader modules...");
+			dlg->set_value(0, 0);
+		}
+
+		u32 built_modules = 0;
+		for (const u64 compiler_opt : variants)
+		{
+			if (!m_shader_cache.contains(compiler_opt))
+			{
+				build_fs(compiler_opt);
+				build_vs(compiler_opt);
+			}
+
+			if (dlg)
+			{
+				dlg->set_value(0, ++built_modules);
+			}
+		}
+
+		const auto pipe_properties = get_interpreter_preload_pipelines();
+		const u32 pipeline_limit = ::size32(variants) * ::size32(pipe_properties);
+		if (!pipeline_limit)
+		{
+			if (dlg)
+			{
+				dlg->close();
+			}
+
+			return;
+		}
+
+		if (dlg)
+		{
+			dlg->set_limit(1, pipeline_limit);
+			dlg->update_msg(1, "Building interpreter pipeline variants...");
+			dlg->set_value(1, 0);
+		}
+
+		atomic_t<u32> completed = 0;
+		u32 queued = 0;
+		for (const auto& props : pipe_properties)
+		{
+			for (const u64 compiler_opt : variants)
+			{
+				pipeline_key key{compiler_opt, props};
+				{
+					reader_lock lock(m_program_cache_lock);
+					if (m_program_cache.contains(key))
+					{
+						continue;
+					}
+				}
+
+				queued++;
+				link(props, compiler_opt, true, [&](glsl::program*)
+				{
+					completed++;
+				});
+			}
+		}
+
+		while (completed.load() < queued && !Emu.IsStopped())
+		{
+			if (dlg)
+			{
+				const u32 count = completed.load();
+				dlg->set_value(1, count);
+				dlg->update_msg(1, fmt::format("Building interpreter pipeline %u of %u...", count, queued));
+			}
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(16));
+		}
+
+		if (dlg)
+		{
+			dlg->set_value(1, queued);
+			dlg->refresh();
+			dlg->close();
+		}
 	}
 
 	glsl::program* shader_interpreter::get(
@@ -576,15 +723,45 @@ namespace vk
 			m_current_key = key;
 		}
 
-		auto found = m_program_cache.find(key);
-		if (found != m_program_cache.end()) [[likely]]
 		{
-			m_current_interpreter = found->second.get();
-			return m_current_interpreter;
+			reader_lock lock(m_program_cache_lock);
+			auto found = m_program_cache.find(key);
+			if (found != m_program_cache.end()) [[likely]]
+			{
+				m_current_interpreter = found->second.get();
+				return m_current_interpreter;
+			}
 		}
 
-		m_current_interpreter = link(properties, key.compiler_opt);
-		m_program_cache[key].reset(m_current_interpreter);
+		const auto start = std::chrono::steady_clock::now();
+		auto linked = link(properties, key.compiler_opt);
+		const auto end = std::chrono::steady_clock::now();
+
+		if (!linked)
+		{
+			return nullptr;
+		}
+
+		const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+		if (duration > std::chrono::milliseconds(1000))
+		{
+			rsx_log.warning("Vulkan interpreter cache miss took %lld ms (compiler_opt=0x%llx)", static_cast<s64>(duration.count()), key.compiler_opt);
+		}
+
+		{
+			std::lock_guard lock(m_program_cache_lock);
+			if (auto found = m_program_cache.find(key); found != m_program_cache.end())
+			{
+				std::unique_ptr<glsl::program> discard(linked);
+				m_current_interpreter = found->second.get();
+			}
+			else
+			{
+				m_current_interpreter = linked;
+				m_program_cache[key].reset(m_current_interpreter);
+			}
+		}
+
 		return m_current_interpreter;
 	}
 

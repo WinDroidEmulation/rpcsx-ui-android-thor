@@ -1344,10 +1344,17 @@ void VKGSRender::on_init_thread()
 	GSRender::on_init_thread();
 	zcull_ctrl.reset(static_cast<::rsx::reports::ZCULL_control*>(this));
 
+	const auto shadermode = g_cfg.video.shadermode.get();
+	const bool preload_interpreter = shadermode == shader_mode::async_with_interpreter || shadermode == shader_mode::interpreter_only;
+
 	if (!m_overlay_manager)
 	{
 		m_frame->hide();
 		m_shaders_cache->load(nullptr, m_pipeline_layout);
+		if (preload_interpreter)
+		{
+			m_shader_interpreter.preload(nullptr);
+		}
 		m_frame->show();
 	}
 	else
@@ -1356,6 +1363,10 @@ void VKGSRender::on_init_thread()
 
 		// TODO: Handle window resize messages during loading on GPUs without OUT_OF_DATE_KHR support
 		m_shaders_cache->load(&dlg, m_pipeline_layout);
+		if (preload_interpreter)
+		{
+			m_shader_interpreter.preload(&dlg);
+		}
 	}
 }
 
