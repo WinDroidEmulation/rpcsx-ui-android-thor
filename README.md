@@ -40,8 +40,6 @@ Captured from the connected AYN Thor test device.
 
 ![Thor menu](docs/screenshots/rpcsx-thor-menu.png)
 
-![Overlay editor](docs/screenshots/rpcsx-thor-overlay-editor.png)
-
 ## User-Facing Differences
 
 Plain version: upstream is the general Android app; this fork is the Thor handheld experiment.
