@@ -20,6 +20,7 @@
 #include "sys_memory.h"
 #include "sys_mmapper.h"
 #include "sys_process.h"
+#include "thor_spurs_probe.h"
 
 #include "rpcsx/fw/ps3/cellSpurs.h"
 
@@ -36,7 +37,7 @@
 
 LOG_CHANNEL(sys_spu);
 
-static bool thor_spurs_probe_enabled() noexcept {
+static bool thor_spurs_probe_property_enabled() noexcept {
 #ifdef ANDROID
   char value[PROP_VALUE_MAX]{};
   const int length =
@@ -55,14 +56,83 @@ static bool thor_spurs_probe_enabled() noexcept {
   return false;
 }
 
+bool thor_spurs_probe_enabled() noexcept {
+  static std::atomic<bool> enabled{false};
+  static std::atomic<u64> last_check_time{0};
+
+  const u64 now = get_system_time();
+  u64 last = last_check_time.load(std::memory_order_relaxed);
+
+  if (now - last > 250'000 &&
+      last_check_time.compare_exchange_strong(last, now,
+                                              std::memory_order_relaxed)) {
+    enabled.store(thor_spurs_probe_property_enabled(),
+                  std::memory_order_relaxed);
+  }
+
+  return enabled.load(std::memory_order_relaxed);
+}
+
 struct thor_spurs_probe_stats {
   std::atomic<u64> starts{0};
   std::atomic<u64> joins{0};
+  std::atomic<u64> event_receives{0};
+  std::atomic<u64> semaphore_waits{0};
+  std::atomic<u64> semaphore_posts{0};
+  std::atomic<u64> usleeps{0};
   std::atomic<u64> last_log_time{0};
   std::atomic<u64> last_state_log_time{0};
+  std::atomic<u64> last_ppu_wait_log_time{0};
 };
 
 static thor_spurs_probe_stats g_thor_spurs_probe_stats;
+
+void thor_spurs_probe_log_ppu_wait(const char *op, ppu_thread &ppu,
+                                   u32 object_id, u64 timeout, u64 detail0,
+                                   u64 detail1, s32 result) {
+  if (!thor_spurs_probe_enabled()) {
+    return;
+  }
+
+  if (std::strncmp(op, "event_receive", 13) == 0) {
+    g_thor_spurs_probe_stats.event_receives.fetch_add(
+        1, std::memory_order_relaxed);
+  } else if (std::strncmp(op, "sem_wait", 8) == 0) {
+    g_thor_spurs_probe_stats.semaphore_waits.fetch_add(
+        1, std::memory_order_relaxed);
+  } else if (std::strncmp(op, "sem_post", 8) == 0) {
+    g_thor_spurs_probe_stats.semaphore_posts.fetch_add(
+        1, std::memory_order_relaxed);
+  } else if (std::strcmp(op, "usleep") == 0) {
+    g_thor_spurs_probe_stats.usleeps.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  const u64 now = get_system_time();
+  u64 last = g_thor_spurs_probe_stats.last_ppu_wait_log_time.load(
+      std::memory_order_relaxed);
+  if (now - last < 1'000'000) {
+    return;
+  }
+
+  if (!g_thor_spurs_probe_stats.last_ppu_wait_log_time.compare_exchange_strong(
+          last, now, std::memory_order_relaxed)) {
+    return;
+  }
+
+  const std::string ppu_name = static_cast<std::string>(ppu.thread_name);
+
+  sys_spu.notice(
+      "Thor SPURS PPU wait probe: op=%s event_receives=%llu sem_waits=%llu "
+      "sem_posts=%llu usleeps=%llu ppu=0x%x name=\"%s\" cia=0x%x lr=0x%x "
+      "object=0x%x timeout=0x%llx detail0=0x%llx detail1=0x%llx result=0x%x",
+      op,
+      g_thor_spurs_probe_stats.event_receives.load(std::memory_order_relaxed),
+      g_thor_spurs_probe_stats.semaphore_waits.load(std::memory_order_relaxed),
+      g_thor_spurs_probe_stats.semaphore_posts.load(std::memory_order_relaxed),
+      g_thor_spurs_probe_stats.usleeps.load(std::memory_order_relaxed), ppu.id,
+      ppu_name, ppu.cia, ppu.lr, object_id, timeout, detail0, detail1,
+      static_cast<u32>(result));
+}
 
 static u64 thor_spurs_pack_nibbles(const u8 *values, usz count) {
   u64 packed = 0;

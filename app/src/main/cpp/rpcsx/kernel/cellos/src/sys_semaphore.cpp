@@ -6,6 +6,7 @@
 
 #include "Emu/Cell/ErrorCodes.h"
 #include "Emu/Cell/PPUThread.h"
+#include "thor_spurs_probe.h"
 
 #include "rx/asm.hpp"
 
@@ -142,6 +143,9 @@ error_code sys_semaphore_wait(ppu_thread &ppu, u32 sem_id, u64 timeout) {
   }
 
   if (sem.ret) {
+    thor_spurs_probe_log_ppu_wait("sem_wait_ready", ppu, sem_id, timeout,
+                                  sem->key, static_cast<u64>(+sem->val),
+                                  CELL_OK);
     return CELL_OK;
   }
 
@@ -203,7 +207,11 @@ error_code sys_semaphore_wait(ppu_thread &ppu, u32 sem_id, u64 timeout) {
     }
   }
 
-  return not_an_error(ppu.gpr[3]);
+  const s32 result = static_cast<s32>(ppu.gpr[3]);
+  thor_spurs_probe_log_ppu_wait("sem_wait_wait", ppu, sem_id, timeout,
+                                sem->key, static_cast<u64>(+sem->val),
+                                result);
+  return not_an_error(result);
 }
 
 error_code sys_semaphore_trywait(ppu_thread &ppu, u32 sem_id) {
@@ -254,6 +262,9 @@ error_code sys_semaphore_post(ppu_thread &ppu, u32 sem_id, s32 count) {
   lv2_obj::notify_all_t notify;
 
   if (sem.ret) {
+    thor_spurs_probe_log_ppu_wait("sem_post_fast", ppu, sem_id,
+                                  static_cast<u64>(count), sem->key,
+                                  static_cast<u64>(+sem->val), CELL_OK);
     return CELL_OK;
   } else {
     std::lock_guard lock(sem->mutex);
@@ -290,6 +301,9 @@ error_code sys_semaphore_post(ppu_thread &ppu, u32 sem_id, s32 count) {
     }
   }
 
+  thor_spurs_probe_log_ppu_wait("sem_post", ppu, sem_id,
+                                static_cast<u64>(count), sem->key,
+                                static_cast<u64>(+sem->val), CELL_OK);
   return CELL_OK;
 }
 

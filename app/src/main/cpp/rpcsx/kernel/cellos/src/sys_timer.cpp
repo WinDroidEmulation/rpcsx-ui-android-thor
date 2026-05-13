@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "sys_timer.h"
+#include "thor_spurs_probe.h"
 
 #include "Emu/Cell/ErrorCodes.h"
 #include "Emu/Cell/PPUThread.h"
@@ -423,6 +424,8 @@ error_code sys_timer_usleep(ppu_thread &ppu, u64 sleep_time) {
 
   sys_timer.trace("sys_timer_usleep(sleep_time=0x%llx)", sleep_time);
 
+  const u64 requested_sleep_time = sleep_time;
+
   if (sleep_time) {
     const s64 add_time = g_cfg.core.usleep_addend;
 
@@ -446,5 +449,8 @@ error_code sys_timer_usleep(ppu_thread &ppu, u64 sleep_time) {
     std::this_thread::yield();
   }
 
+  thor_spurs_probe_log_ppu_wait("usleep", ppu, 0, requested_sleep_time,
+                                sleep_time, static_cast<u64>((+ppu.state).raw()),
+                                CELL_OK);
   return CELL_OK;
 }
