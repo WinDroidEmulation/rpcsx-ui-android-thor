@@ -4,6 +4,7 @@
 #include "util/lockless.h"
 #include "util/address_range.h"
 #include "SPUThread.h"
+#include "SPUAnalyser.h"
 #include <vector>
 #include <bitset>
 #include <memory>
@@ -201,6 +202,25 @@ public:
 		bitset_last = is_null,
 	};
 
+	enum compare_direction : u32
+	{
+		CMP_TURNAROUND_FLAG = 0x1,
+		CMP_NEGATE_FLAG = 0x100,
+		CMP_SLESS = 0,
+		CMP_SGREATER = CMP_SLESS | CMP_TURNAROUND_FLAG,
+		CMP_EQUAL,
+		CMP_EQUAL2 = CMP_EQUAL | CMP_TURNAROUND_FLAG,
+		CMP_LLESS,
+		CMP_LGREATER = CMP_LLESS | CMP_TURNAROUND_FLAG,
+		CMP_SGREATER_EQUAL = CMP_SLESS | CMP_NEGATE_FLAG,
+		CMP_SLOWER_EQUAL = CMP_SGREATER | CMP_NEGATE_FLAG,
+		CMP_NOT_EQUAL = CMP_EQUAL | CMP_NEGATE_FLAG,
+		CMP_NOT_EQUAL2 = CMP_NOT_EQUAL | CMP_TURNAROUND_FLAG,
+		CMP_LGREATER_EQUAL = CMP_LLESS | CMP_NEGATE_FLAG,
+		CMP_LLOWER_EQUAL = CMP_LGREATER | CMP_NEGATE_FLAG,
+		CMP_UNKNOWN,
+	};
+
 	struct reg_state_t
 	{
 		rx::EnumBitSet<vf> flag{+vf::is_null};
@@ -271,6 +291,60 @@ public:
 
 		static reg_state_t from_value(u32 value) noexcept;
 		static u32 alloc_tag(bool reset = false) noexcept;
+	};
+
+	struct reduced_loop_t
+	{
+		bool active = false;
+		bool failed = false;
+		u32 loop_pc = SPU_LS_SIZE;
+		u32 loop_end = SPU_LS_SIZE;
+		bool is_two_block_loop = false;
+		bool has_cond_state = false;
+
+		u64 cond_val_mask = umax;
+		u64 cond_val_min = 0;
+		u64 cond_val_size = 0;
+		compare_direction cond_val_compare = CMP_UNKNOWN;
+		u64 cond_val_incr = 0;
+		bool cond_val_incr_is_immediate = false;
+		u64 cond_val_register_argument_idx = umax;
+		u64 cond_val_register_idx = umax;
+		bool cond_val_incr_before_cond = false;
+		bool cond_val_incr_before_cond_taken_in_account = false;
+		bool cond_val_is_immediate = false;
+
+		bool is_constant_expression = false;
+		bool is_secret = false;
+
+		struct supplemental_condition_t
+		{
+			u64 immediate_value = umax;
+			u64 type_size = 0;
+			compare_direction val_compare = CMP_UNKNOWN;
+		};
+
+		u64 expected_sup_conds = 0;
+		u64 current_sup_conds_index = 0;
+		std::vector<supplemental_condition_t> sup_conds;
+
+		std::bitset<s_reg_max> loop_args;
+		std::bitset<s_reg_max> loop_dicts;
+		std::bitset<s_reg_max> loop_writes;
+		std::bitset<s_reg_max> loop_may_update;
+		std::bitset<s_reg_max> gpr_not_nans;
+
+		bool is_gpr_not_NaN_hint(u32 i) const noexcept
+		{
+			return i < gpr_not_nans.size() && gpr_not_nans.test(i);
+		}
+
+		reduced_loop_t discard()
+		{
+			const reduced_loop_t old = *this;
+			*this = reduced_loop_t{};
+			return old;
+		}
 	};
 
 protected:
@@ -391,6 +465,7 @@ protected:
 		putllc16,
 		putllc0,
 		rchcnt_loop,
+		reduced_loop,
 	};
 
 	std::vector<inst_attr> m_inst_attrs;
@@ -398,11 +473,12 @@ protected:
 	struct pattern_info
 	{
 		utils::address_range range;
+		std::shared_ptr<void> info_ptr;
 	};
 
 	std::unordered_map<u32, pattern_info> m_patterns;
 
-	void add_pattern(bool fill_all, inst_attr attr, u32 start, u32 end = -1);
+	void add_pattern(bool fill_all, inst_attr attr, u32 start, u32 end = -1, std::shared_ptr<void> info_ptr = nullptr);
 
 private:
 	// For private use

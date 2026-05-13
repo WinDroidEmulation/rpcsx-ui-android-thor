@@ -76,6 +76,30 @@ struct span_less
 template <typename T>
 inline constexpr span_less<T> s_span_less{};
 
+template <>
+void fmt_class_string<spu_recompiler_base::compare_direction>::format(std::string& out, u64 arg)
+{
+	format_enum(out, arg, [](spu_recompiler_base::compare_direction arg)
+	{
+		switch (arg)
+		{
+		case spu_recompiler_base::CMP_SLESS: return "SLT";
+		case spu_recompiler_base::CMP_SGREATER: return "SGT";
+		case spu_recompiler_base::CMP_EQUAL: return "IEQ";
+		case spu_recompiler_base::CMP_LLESS: return "ULT";
+		case spu_recompiler_base::CMP_LGREATER: return "UGT";
+		case spu_recompiler_base::CMP_SGREATER_EQUAL: return "SGE";
+		case spu_recompiler_base::CMP_SLOWER_EQUAL: return "SLE";
+		case spu_recompiler_base::CMP_NOT_EQUAL: return "INE";
+		case spu_recompiler_base::CMP_LGREATER_EQUAL: return "UGE";
+		case spu_recompiler_base::CMP_LLOWER_EQUAL: return "ULE";
+		default: break;
+		}
+
+		return unknown;
+	});
+}
+
 static bool spu_reduced_loop_detect_only_enabled() noexcept
 {
 #ifdef ANDROID
@@ -88,6 +112,28 @@ static bool spu_reduced_loop_detect_only_enabled() noexcept
 	}
 #else
 	const char* value = std::getenv("RPCSX_SPU_REDUCED_LOOP_DETECT");
+
+	if (!value || !*value)
+	{
+		return false;
+	}
+#endif
+
+	return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+}
+
+static bool spu_reduced_loop_emit_enabled() noexcept
+{
+#ifdef ANDROID
+	char value[PROP_VALUE_MAX]{};
+	const int length = __system_property_get("debug.rpcsx.thor.spu_reduced_loop_emit", value);
+
+	if (length <= 0)
+	{
+		return false;
+	}
+#else
+	const char* value = std::getenv("RPCSX_SPU_REDUCED_LOOP_EMIT");
 
 	if (!value || !*value)
 	{
@@ -5057,8 +5103,11 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 		bool is_two_block_loop = false;
 	};
 
-	const bool detect_reduced_loops = spu_reduced_loop_detect_only_enabled() && should_search_patterns;
+	const bool log_reduced_loop_candidates = spu_reduced_loop_detect_only_enabled();
+	const bool emit_reduced_loops = spu_reduced_loop_emit_enabled();
+	const bool scan_reduced_loops = (log_reduced_loop_candidates || emit_reduced_loops) && should_search_patterns;
 	std::map<u32, reduced_loop_candidate_t> reduced_loop_candidates;
+	std::map<u32, reduced_loop_t> reduced_loop_patterns;
 
 	auto get_reduced_loop_block_targets = [&](u32 pc) -> std::span<u32>
 	{
@@ -5254,7 +5303,301 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 		};
 	};
 
-	if (detect_reduced_loops)
+	auto invert_reduced_loop_compare = [](compare_direction compare) -> compare_direction
+	{
+		switch (compare)
+		{
+		case CMP_SLESS: return CMP_SGREATER_EQUAL;
+		case CMP_SGREATER: return CMP_SLOWER_EQUAL;
+		case CMP_EQUAL: return CMP_NOT_EQUAL;
+		case CMP_LLESS: return CMP_LGREATER_EQUAL;
+		case CMP_LGREATER: return CMP_LLOWER_EQUAL;
+		case CMP_SGREATER_EQUAL: return CMP_SLESS;
+		case CMP_SLOWER_EQUAL: return CMP_SGREATER;
+		case CMP_NOT_EQUAL: return CMP_EQUAL;
+		case CMP_LGREATER_EQUAL: return CMP_LLESS;
+		case CMP_LLOWER_EQUAL: return CMP_LGREATER;
+		default: return CMP_UNKNOWN;
+		}
+	};
+
+	auto make_reduced_loop_pattern = [&](const reduced_loop_candidate_t& candidate) -> std::optional<reduced_loop_t>
+	{
+		if (candidate.supplemental_conditions != 0)
+		{
+			return {};
+		}
+
+		const auto read_op = [&](u32 pc) -> std::optional<spu_opcode_t>
+		{
+			if (pc < entry_point || pc >= entry_point + result.data.size() * 4)
+			{
+				return {};
+			}
+
+			return spu_opcode_t{std::bit_cast<be_t<u32>>(::at32(result.data, (pc - entry_point) / 4))};
+		};
+
+		const auto block_end = [&](u32 pc) -> u32
+		{
+			const auto found = m_bbs.find(pc);
+			return found == m_bbs.end() ? pc : pc + found->second.size * 4;
+		};
+
+		const u32 scan_end = block_end(candidate.loop_end);
+		u32 branch_pc = SPU_LS_SIZE;
+		spu_opcode_t branch_op{};
+		spu_itype_t branch_type = spu_itype::UNK;
+		bool continue_when_cond = false;
+
+		for (u32 pc = candidate.loop_pc; pc < scan_end; pc += 4)
+		{
+			const auto maybe_op = read_op(pc);
+			if (!maybe_op)
+			{
+				return {};
+			}
+
+			const spu_opcode_t op = *maybe_op;
+			const auto type = g_spu_itype.decode(op.opcode);
+
+			if (type != spu_itype::BRZ && type != spu_itype::BRNZ)
+			{
+				continue;
+			}
+
+			const auto targets = op_branch_targets(pc, op);
+			if (targets[1] == candidate.loop_pc)
+			{
+				branch_pc = pc;
+				branch_op = op;
+				branch_type = type;
+				continue_when_cond = type == spu_itype::BRNZ;
+			}
+			else if (targets[0] == candidate.loop_pc)
+			{
+				branch_pc = pc;
+				branch_op = op;
+				branch_type = type;
+				continue_when_cond = type == spu_itype::BRZ;
+			}
+		}
+
+		if (branch_pc == SPU_LS_SIZE)
+		{
+			return {};
+		}
+
+		u32 compare_pc = SPU_LS_SIZE;
+		spu_opcode_t compare_op{};
+		spu_itype_t compare_type = spu_itype::UNK;
+
+		for (u32 pc = candidate.loop_pc; pc < branch_pc; pc += 4)
+		{
+			if (m_regmod[pc / 4] != branch_op.rt)
+			{
+				continue;
+			}
+
+			const auto maybe_op = read_op(pc);
+			if (!maybe_op)
+			{
+				return {};
+			}
+
+			const auto type = g_spu_itype.decode(maybe_op->opcode);
+			switch (type)
+			{
+			case spu_itype::CEQ:
+			case spu_itype::CEQH:
+			case spu_itype::CEQB:
+			case spu_itype::CEQI:
+			case spu_itype::CEQHI:
+			case spu_itype::CEQBI:
+			case spu_itype::CGT:
+			case spu_itype::CGTH:
+			case spu_itype::CGTB:
+			case spu_itype::CGTI:
+			case spu_itype::CGTHI:
+			case spu_itype::CGTBI:
+			case spu_itype::CLGT:
+			case spu_itype::CLGTH:
+			case spu_itype::CLGTB:
+			case spu_itype::CLGTI:
+			case spu_itype::CLGTHI:
+			case spu_itype::CLGTBI:
+			{
+				compare_pc = pc;
+				compare_op = *maybe_op;
+				compare_type = type;
+				break;
+			}
+			default:
+				break;
+			}
+		}
+
+		if (compare_pc == SPU_LS_SIZE)
+		{
+			return {};
+		}
+
+		reduced_loop_t pattern{};
+		pattern.active = true;
+		pattern.loop_pc = candidate.loop_pc;
+		pattern.loop_end = candidate.loop_end;
+		pattern.is_two_block_loop = candidate.is_two_block_loop;
+		pattern.has_cond_state = true;
+		pattern.expected_sup_conds = candidate.supplemental_conditions;
+		pattern.is_constant_expression = true;
+
+		u32 counter_reg = compare_op.ra;
+		pattern.cond_val_register_idx = counter_reg;
+
+		switch (compare_type)
+		{
+		case spu_itype::CEQ: pattern.cond_val_compare = CMP_EQUAL; pattern.cond_val_mask = u32{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CEQH: pattern.cond_val_compare = CMP_EQUAL; pattern.cond_val_mask = u16{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CEQB: pattern.cond_val_compare = CMP_EQUAL; pattern.cond_val_mask = u8{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CEQI: pattern.cond_val_compare = CMP_EQUAL; pattern.cond_val_mask = u32{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u32>(compare_op.si10); break;
+		case spu_itype::CEQHI: pattern.cond_val_compare = CMP_EQUAL; pattern.cond_val_mask = u16{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u16>(compare_op.si10); break;
+		case spu_itype::CEQBI: pattern.cond_val_compare = CMP_EQUAL; pattern.cond_val_mask = u8{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u8>(compare_op.si10); break;
+		case spu_itype::CGT: pattern.cond_val_compare = CMP_SGREATER; pattern.cond_val_mask = u32{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CGTH: pattern.cond_val_compare = CMP_SGREATER; pattern.cond_val_mask = u16{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CGTB: pattern.cond_val_compare = CMP_SGREATER; pattern.cond_val_mask = u8{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CGTI: pattern.cond_val_compare = CMP_SGREATER; pattern.cond_val_mask = u32{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u32>(compare_op.si10); break;
+		case spu_itype::CGTHI: pattern.cond_val_compare = CMP_SGREATER; pattern.cond_val_mask = u16{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u16>(compare_op.si10); break;
+		case spu_itype::CGTBI: pattern.cond_val_compare = CMP_SGREATER; pattern.cond_val_mask = u8{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u8>(compare_op.si10); break;
+		case spu_itype::CLGT: pattern.cond_val_compare = CMP_LGREATER; pattern.cond_val_mask = u32{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CLGTH: pattern.cond_val_compare = CMP_LGREATER; pattern.cond_val_mask = u16{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CLGTB: pattern.cond_val_compare = CMP_LGREATER; pattern.cond_val_mask = u8{umax}; pattern.cond_val_is_immediate = false; pattern.cond_val_register_argument_idx = compare_op.rb; break;
+		case spu_itype::CLGTI: pattern.cond_val_compare = CMP_LGREATER; pattern.cond_val_mask = u32{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u32>(compare_op.si10); break;
+		case spu_itype::CLGTHI: pattern.cond_val_compare = CMP_LGREATER; pattern.cond_val_mask = u16{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u16>(compare_op.si10); break;
+		case spu_itype::CLGTBI: pattern.cond_val_compare = CMP_LGREATER; pattern.cond_val_mask = u8{umax}; pattern.cond_val_is_immediate = true; pattern.cond_val_min = static_cast<u8>(compare_op.si10); break;
+		default: return {};
+		}
+
+		if (!continue_when_cond)
+		{
+			pattern.cond_val_compare = invert_reduced_loop_compare(pattern.cond_val_compare);
+		}
+
+		if (pattern.cond_val_compare == CMP_UNKNOWN)
+		{
+			return {};
+		}
+
+		u32 increment_pc = SPU_LS_SIZE;
+		spu_opcode_t increment_op{};
+		spu_itype_t increment_type = spu_itype::UNK;
+
+		for (u32 pc = candidate.loop_pc; pc < scan_end; pc += 4)
+		{
+			if (pc == compare_pc || m_regmod[pc / 4] != counter_reg)
+			{
+				continue;
+			}
+
+			const auto maybe_op = read_op(pc);
+			if (!maybe_op)
+			{
+				return {};
+			}
+
+			const auto type = g_spu_itype.decode(maybe_op->opcode);
+			if (type == spu_itype::AI || type == spu_itype::AHI || type == spu_itype::A)
+			{
+				increment_pc = pc;
+				increment_op = *maybe_op;
+				increment_type = type;
+			}
+		}
+
+		if (increment_pc == SPU_LS_SIZE)
+		{
+			return {};
+		}
+
+		pattern.cond_val_incr_before_cond = increment_pc < compare_pc;
+
+		switch (increment_type)
+		{
+		case spu_itype::AI:
+		{
+			if (increment_op.ra != counter_reg)
+			{
+				return {};
+			}
+
+			pattern.cond_val_incr_is_immediate = true;
+			pattern.cond_val_incr = static_cast<u64>(static_cast<s64>(increment_op.si10)) & pattern.cond_val_mask;
+			break;
+		}
+		case spu_itype::AHI:
+		{
+			if (increment_op.ra != counter_reg)
+			{
+				return {};
+			}
+
+			pattern.cond_val_incr_is_immediate = true;
+			pattern.cond_val_incr = (pattern.cond_val_mask == u16{umax} ? static_cast<u16>(increment_op.si10) : increment_op.duplicate_si10()) & pattern.cond_val_mask;
+			break;
+		}
+		case spu_itype::A:
+		{
+			if (increment_op.ra == counter_reg && increment_op.rb != counter_reg)
+			{
+				pattern.cond_val_incr_is_immediate = false;
+				pattern.cond_val_incr = increment_op.rb;
+			}
+			else if (increment_op.rb == counter_reg && increment_op.ra != counter_reg)
+			{
+				pattern.cond_val_incr_is_immediate = false;
+				pattern.cond_val_incr = increment_op.ra;
+			}
+			else
+			{
+				return {};
+			}
+
+			break;
+		}
+		default:
+			return {};
+		}
+
+		for (u32 block_pc = candidate.loop_pc; block_pc <= candidate.loop_end;)
+		{
+			const auto found = m_bbs.find(block_pc);
+			if (found == m_bbs.end())
+			{
+				return {};
+			}
+
+			pattern.loop_writes |= found->second.reg_mod;
+			pattern.loop_args |= found->second.reg_use;
+			block_pc += found->second.size * 4;
+		}
+
+		pattern.loop_dicts.set(counter_reg);
+		pattern.loop_writes.set(counter_reg);
+		pattern.loop_args &= ~pattern.loop_writes;
+
+		if (!pattern.cond_val_incr_is_immediate && pattern.cond_val_incr < s_reg_max)
+		{
+			pattern.loop_args.set(static_cast<usz>(pattern.cond_val_incr));
+		}
+
+		if (!pattern.cond_val_is_immediate && pattern.cond_val_register_argument_idx < s_reg_max)
+		{
+			pattern.loop_args.set(static_cast<usz>(pattern.cond_val_register_argument_idx));
+		}
+
+		return pattern;
+	};
+
+	if (scan_reduced_loops)
 	{
 		for (const auto& [pc, block] : m_bbs)
 		{
@@ -5266,11 +5609,27 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 			if (auto candidate = inspect_reduced_loop_candidate(pc, false))
 			{
 				reduced_loop_candidates.try_emplace(candidate->loop_pc, *candidate);
+
+				if (emit_reduced_loops)
+				{
+					if (auto pattern = make_reduced_loop_pattern(*candidate))
+					{
+						reduced_loop_patterns.try_emplace(candidate->loop_pc, *pattern);
+					}
+				}
 			}
 
 			if (auto candidate = inspect_reduced_loop_candidate(pc, true))
 			{
 				reduced_loop_candidates.try_emplace(candidate->loop_pc, *candidate);
+
+				if (emit_reduced_loops)
+				{
+					if (auto pattern = make_reduced_loop_pattern(*candidate))
+					{
+						reduced_loop_patterns.try_emplace(candidate->loop_pc, *pattern);
+					}
+				}
 			}
 		}
 	}
@@ -7378,7 +7737,7 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 		fmt::append(func_hash, "%s", fmt::base57(output));
 	}
 
-	if (detect_reduced_loops && !reduced_loop_candidates.empty())
+	if (log_reduced_loop_candidates && !reduced_loop_candidates.empty())
 	{
 		for (const auto& [loop_pc, candidate] : reduced_loop_candidates)
 		{
@@ -7514,6 +7873,33 @@ spu_program spu_recompiler_base::analyse(const be_t<u32>* ls, u32 entry_point, s
 			add_pattern(false, inst_attr::rchcnt_loop, read_pc - result.entry_point);
 
 			spu_log.error("Channel Loop Pattern Detected! Report to developers! (read_pc=0x%x, branch_pc=0x%x, branch_target=0x%x, 0x%x-%s)", read_pc, pattern.branch_pc, pattern.branch_target, entry_point, func_hash);
+		}
+	}
+
+	if (emit_reduced_loops)
+	{
+		for (const auto& [loop_pc, pattern] : reduced_loop_patterns)
+		{
+			if (!pattern.active || pattern.loop_pc == SPU_LS_SIZE)
+			{
+				continue;
+			}
+
+			if (inst_attr attr = m_inst_attrs[(loop_pc - entry_point) / 4]; attr == inst_attr::none)
+			{
+				add_pattern(false, inst_attr::reduced_loop, loop_pc - result.entry_point, loop_pc - result.entry_point, std::make_shared<reduced_loop_t>(pattern));
+
+				spu_log.success("Reduced Loop Pattern Detected! (DICT: r%d, ARG: %s, Incr: %s (%s), CMP/Size: %s/%u, loop_pc=0x%x, 0x%x-%s)",
+					pattern.cond_val_register_idx,
+					pattern.cond_val_is_immediate ? fmt::format("0x%x", pattern.cond_val_min) : fmt::format("r%d", pattern.cond_val_register_argument_idx),
+					pattern.cond_val_incr_is_immediate ? fmt::format("%d", static_cast<s32>(pattern.cond_val_incr)) : fmt::format("r%d", pattern.cond_val_incr),
+					pattern.cond_val_incr_before_cond ? "BEFORE" : "AFTER",
+					pattern.cond_val_compare,
+					std::popcount(pattern.cond_val_mask),
+					loop_pc,
+					entry_point,
+					func_hash);
+			}
 		}
 	}
 
@@ -8579,14 +8965,14 @@ std::array<reg_state_t, s_reg_max>& block_reg_info::evaluate_start_state(const s
 	return walkby_state;
 }
 
-void spu_recompiler_base::add_pattern(bool fill_all, inst_attr attr, u32 start, u32 end)
+void spu_recompiler_base::add_pattern(bool fill_all, inst_attr attr, u32 start, u32 end, std::shared_ptr<void> info_ptr)
 {
 	if (end == umax)
 	{
 		end = start;
 	}
 
-	m_patterns[start] = pattern_info{utils::address_range::start_end(start, end)};
+	m_patterns[start] = pattern_info{utils::address_range::start_end(start, end), std::move(info_ptr)};
 
 	for (u32 i = start; i <= (fill_all ? end : start); i += 4)
 	{

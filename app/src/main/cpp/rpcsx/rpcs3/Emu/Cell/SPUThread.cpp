@@ -464,6 +464,7 @@ void do_cell_atomic_128_store(u32 addr, const void* to_write);
 extern thread_local u64 g_tls_fault_spu;
 
 const spu_decoder<spu_itype> s_spu_itype;
+const extern spu_decoder<spu_iflag> g_spu_iflag;
 
 namespace vm
 {
@@ -606,6 +607,54 @@ std::array<u32, 2> op_branch_targets(u32 pc, spu_opcode_t op)
 	}
 
 	return res;
+}
+
+std::tuple<u32, std::array<u32, 3>, u32> op_register_targets(u32 /*pc*/, spu_opcode_t op)
+{
+	std::tuple<u32, std::array<u32, 3>, u32> result{u32{umax}, std::array<u32, 3>{128, 128, 128}, op.opcode};
+
+	const auto type = s_spu_itype.decode(op.opcode);
+
+	if (type & spu_itype::zregmod)
+	{
+		std::get<2>(result) = 0;
+		return result;
+	}
+
+	std::get<0>(result) = type & spu_itype::_quadrop ? +op.rt4 : +op.rt;
+
+	spu_opcode_t op_masked = op;
+
+	if (type & spu_itype::_quadrop)
+	{
+		op_masked.rt4 = 0;
+	}
+	else
+	{
+		op_masked.rt = 0;
+	}
+
+	std::get<2>(result) = op_masked.opcode;
+
+	if (auto iflags = g_spu_iflag.decode(op.opcode))
+	{
+		if (+iflags & +spu_iflag::use_ra)
+		{
+			std::get<1>(result)[0] = op.ra;
+		}
+
+		if (+iflags & +spu_iflag::use_rb)
+		{
+			std::get<1>(result)[1] = op.rb;
+		}
+
+		if (+iflags & +spu_iflag::use_rc)
+		{
+			std::get<1>(result)[2] = op.rc;
+		}
+	}
+
+	return result;
 }
 
 const auto spu_putllc_tx = build_function_asm<u64 (*)(u32 raddr, u64 rtime, void* _old, const void* _new)>("spu_putllc_tx", [](native_asm& c, auto& args)
