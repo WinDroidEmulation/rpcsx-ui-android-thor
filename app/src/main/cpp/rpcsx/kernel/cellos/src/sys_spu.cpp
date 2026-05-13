@@ -24,7 +24,86 @@
 #include "rx/align.hpp"
 #include "rx/asm.hpp"
 
+#include <atomic>
+#include <cstdlib>
+#include <cstring>
+
+#ifdef ANDROID
+#include <sys/system_properties.h>
+#endif
+
 LOG_CHANNEL(sys_spu);
+
+static bool thor_spurs_probe_enabled() noexcept {
+#ifdef ANDROID
+  char value[PROP_VALUE_MAX]{};
+  const int length =
+      __system_property_get("debug.rpcsx.thor.spurs_probe", value);
+  if (length > 0) {
+    return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' ||
+           value[0] == 't' || value[0] == 'T';
+  }
+#endif
+
+  if (const char *value = std::getenv("RPCSX_THOR_SPURS_PROBE")) {
+    return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' ||
+           value[0] == 't' || value[0] == 'T';
+  }
+
+  return false;
+}
+
+struct thor_spurs_probe_stats {
+  std::atomic<u64> starts{0};
+  std::atomic<u64> joins{0};
+  std::atomic<u64> last_log_time{0};
+};
+
+static thor_spurs_probe_stats g_thor_spurs_probe_stats;
+
+static void thor_spurs_probe_log(const char *op, ppu_thread &ppu,
+                                 const lv2_spu_group &group, u32 id,
+                                 u32 cause = umax, u32 status = umax) {
+  if (!thor_spurs_probe_enabled()) {
+    return;
+  }
+
+  const bool is_start = std::strcmp(op, "start") == 0;
+  const u64 starts =
+      is_start ? g_thor_spurs_probe_stats.starts.fetch_add(1) + 1
+               : g_thor_spurs_probe_stats.starts.load();
+  const u64 joins =
+      is_start ? g_thor_spurs_probe_stats.joins.load()
+               : g_thor_spurs_probe_stats.joins.fetch_add(1) + 1;
+
+  if (is_start) {
+    return;
+  }
+
+  const u64 now = get_system_time();
+  u64 last = g_thor_spurs_probe_stats.last_log_time.load();
+  if (now - last < 1'000'000) {
+    return;
+  }
+
+  if (!g_thor_spurs_probe_stats.last_log_time.compare_exchange_strong(last,
+                                                                      now)) {
+    return;
+  }
+
+  const std::string ppu_name = static_cast<std::string>(ppu.thread_name);
+
+  sys_spu.notice(
+      "Thor SPURS probe: op=%s starts=%llu joins=%llu ppu=0x%x name=\"%s\" "
+      "cia=0x%x lr=0x%x group=0x%x group_name=\"%s\" state=%u running=%u "
+      "max_num=%u max_run=%u spurs_running=%u init=%u stop_count=%u "
+      "join_state=0x%x exit_status=0x%x waiter=0x%x cause=0x%x status=0x%x",
+      op, starts, joins, ppu.id, ppu_name, ppu.cia, ppu.lr, id, group.name,
+      static_cast<u32>(+group.run_state), +group.running, group.max_num,
+      group.max_run, +group.spurs_running, +group.init, +group.stop_count,
+      +group.join_state, static_cast<u32>(+group.exit_status),
+      group.waiter ? group.waiter->id : 0, cause, status);
+}
 
 template <>
 void fmt_class_string<spu_group_status>::format(std::string &out, u64 arg) {
@@ -1031,6 +1110,8 @@ error_code sys_spu_thread_group_start(ppu_thread &ppu, u32 id) {
   group->running = max_threads;
   group->set_terminate = false;
 
+  thor_spurs_probe_log("start", ppu, *group, id);
+
   for (auto &thread : group->threads) {
     if (thread) {
       auto &args = group->args[thread->lv2_id >> 24];
@@ -1436,6 +1517,7 @@ error_code sys_spu_thread_group_join(ppu_thread &ppu, u32 id,
   }
 
   *status = static_cast<s32>(ppu.gpr[5]);
+  thor_spurs_probe_log("join", ppu, *group, id, *cause, *status);
   return CELL_OK;
 }
 

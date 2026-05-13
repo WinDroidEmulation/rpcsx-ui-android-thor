@@ -26,11 +26,18 @@
 
 #include "Emu/RSX/Core/RSXReservationLock.hpp"
 
+#include <atomic>
 #include <cmath>
 #include <cfenv>
+#include <cstdlib>
 #include <thread>
 #include <shared_mutex>
 #include <span>
+
+#ifdef ANDROID
+#include <sys/system_properties.h>
+#endif
+
 #include "util/vm.hpp"
 #include "rx/asm.hpp"
 #include "util/v128.hpp"
@@ -102,6 +109,121 @@ const u32 spu_frsqest_exponent_lut[256] =
 		0x23000000, 0x22800000, 0x22800000, 0x22000000, 0x22000000, 0x21800000, 0x21800000, 0x21000000, 0x21000000, 0x20800000, 0x20800000, 0x20000000, 0x20000000, 0x1F800000, 0x1F800000, 0x1F000000};
 
 using spu_rdata_t = decltype(spu_thread::rdata);
+
+static bool thor_spurs_probe_enabled() noexcept
+{
+#ifdef ANDROID
+	char value[PROP_VALUE_MAX]{};
+	const int length = __system_property_get("debug.rpcsx.thor.spurs_probe", value);
+	if (length > 0)
+	{
+		return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+	}
+#endif
+
+	if (const char* value = std::getenv("RPCSX_THOR_SPURS_PROBE"))
+	{
+		return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+	}
+
+	return false;
+}
+
+enum class thor_spurs_wait_event : u32
+{
+	lr_event,
+	notifier,
+	putllc_wait,
+	putllc_timeout,
+};
+
+struct thor_spurs_wait_probe_stats
+{
+	std::atomic<u64> lr_events{0};
+	std::atomic<u64> notifier_waits{0};
+	std::atomic<u64> putllc_waits{0};
+	std::atomic<u64> putllc_timeouts{0};
+	std::atomic<u64> last_log_time{0};
+};
+
+static thor_spurs_wait_probe_stats g_thor_spurs_wait_probe_stats;
+
+static const char* thor_spurs_wait_event_name(thor_spurs_wait_event event) noexcept
+{
+	switch (event)
+	{
+	case thor_spurs_wait_event::lr_event: return "lr_event";
+	case thor_spurs_wait_event::notifier: return "notifier";
+	case thor_spurs_wait_event::putllc_wait: return "putllc_wait";
+	case thor_spurs_wait_event::putllc_timeout: return "putllc_timeout";
+	}
+
+	return "unknown";
+}
+
+static bool thor_spurs_probe_matches(const spu_thread& spu) noexcept
+{
+	constexpr u32 invalid_spurs = 0u - 0x80;
+	return spu.group && spu.spurs_addr != 0 && spu.spurs_addr != invalid_spurs &&
+		spu.group->name.ends_with("CellSpursKernelGroup"sv);
+}
+
+static void thor_spurs_wait_probe_log(spu_thread& spu, thor_spurs_wait_event event,
+	u32 mask, u32 raddr, u64 rtime, u32 wait_switch, u32 max_run = 0,
+	u32 prev_running = 0, u64 wait_time = 0)
+{
+	if (!thor_spurs_probe_enabled() || !thor_spurs_probe_matches(spu))
+	{
+		return;
+	}
+
+	u64 lr_events = g_thor_spurs_wait_probe_stats.lr_events.load();
+	u64 notifier_waits = g_thor_spurs_wait_probe_stats.notifier_waits.load();
+	u64 putllc_waits = g_thor_spurs_wait_probe_stats.putllc_waits.load();
+	u64 putllc_timeouts = g_thor_spurs_wait_probe_stats.putllc_timeouts.load();
+
+	switch (event)
+	{
+	case thor_spurs_wait_event::lr_event:
+		lr_events = g_thor_spurs_wait_probe_stats.lr_events.fetch_add(1) + 1;
+		break;
+	case thor_spurs_wait_event::notifier:
+		notifier_waits = g_thor_spurs_wait_probe_stats.notifier_waits.fetch_add(1) + 1;
+		break;
+	case thor_spurs_wait_event::putllc_wait:
+		putllc_waits = g_thor_spurs_wait_probe_stats.putllc_waits.fetch_add(1) + 1;
+		break;
+	case thor_spurs_wait_event::putllc_timeout:
+		putllc_timeouts = g_thor_spurs_wait_probe_stats.putllc_timeouts.fetch_add(1) + 1;
+		break;
+	}
+
+	const u64 now = get_system_time();
+	u64 last = g_thor_spurs_wait_probe_stats.last_log_time.load();
+	if (now - last < 1'000'000)
+	{
+		return;
+	}
+
+	if (!g_thor_spurs_wait_probe_stats.last_log_time.compare_exchange_strong(last, now))
+	{
+		return;
+	}
+
+	const auto group = spu.group;
+	spu_log.notice(
+		"Thor SPURS wait probe: event=%s lr_events=%llu notifier_waits=%llu "
+		"putllc_waits=%llu putllc_timeouts=%llu spu=0x%x idx=%u pc=0x%x "
+		"block=%llu group=0x%x group_name=\"%s\" max_num=%u max_run=%u "
+		"spurs_running=%u raddr=0x%x spurs_addr=0x%x rtime=0x%llx "
+		"mask=0x%x wait_switch=%u local_max_run=%u prev_running=%u "
+		"wait_time=%llu",
+		thor_spurs_wait_event_name(event), lr_events, notifier_waits,
+		putllc_waits, putllc_timeouts, spu.lv2_id, spu.index, spu.pc,
+		spu.block_counter, group->id, group->name, group->max_num,
+		group->max_run, +group->spurs_running, raddr, spu.spurs_addr, rtime,
+		mask, wait_switch, max_run, prev_running, wait_time);
+}
 
 template <>
 void fmt_class_string<mfc_atomic_status>::format(std::string& out, u64 arg)
@@ -5094,6 +5216,9 @@ bool spu_thread::process_mfc_cmd()
 				// Wait the duration of one and a half tasks
 				const u64 spurs_wait_time = std::clamp<u64>(spurs_average_task_duration / spurs_task_count_to_calculate * 3 / 2, 10'000, 100'000);
 				spurs_wait_duration_last = spurs_wait_time;
+				thor_spurs_wait_probe_log(*this, thor_spurs_wait_event::putllc_wait,
+					SPU_EVENT_LR, raddr, rtime, 0xffffffffu, max_run,
+					prev_running, spurs_wait_time);
 
 				if (spurs_last_task_timestamp)
 				{
@@ -5110,6 +5235,9 @@ bool spu_thread::process_mfc_cmd()
 					{
 						// Timed-out
 						group->spurs_running++;
+						thor_spurs_wait_probe_log(*this, thor_spurs_wait_event::putllc_timeout,
+							SPU_EVENT_LR, raddr, rtime, 0xffffffffu, max_run,
+							prev_running, spurs_wait_time);
 						break;
 					}
 
@@ -6061,6 +6189,12 @@ s64 spu_thread::get_ch_value(u32 ch)
 			eventstat_busy_waiting_switch = value ? 1 : 0;
 		}
 
+		if (is_LR_wait)
+		{
+			thor_spurs_wait_probe_log(*this, thor_spurs_wait_event::lr_event,
+				mask1, raddr, rtime, eventstat_busy_waiting_switch);
+		}
+
 		for (bool is_first = true; !events.count; events = get_events(mask1 & ~SPU_EVENT_LR, true, true), is_first = false)
 		{
 			const auto old = +state;
@@ -6179,6 +6313,8 @@ s64 spu_thread::get_ch_value(u32 ch)
 
 					// Check other reservations in other threads
 					lv2_obj::notify_all();
+					thor_spurs_wait_probe_log(*this, thor_spurs_wait_event::notifier,
+						mask1, raddr, rtime, eventstat_busy_waiting_switch);
 
 					if (raddr - spurs_addr <= 0x80 && !g_cfg.core.spu_accurate_reservations && mask1 == SPU_EVENT_LR)
 					{
