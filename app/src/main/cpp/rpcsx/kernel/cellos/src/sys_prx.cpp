@@ -16,7 +16,12 @@
 #include "sys_memory.h"
 #include "sys_process.h"
 #include "util/StrUtil.h"
+#include <cstdlib>
 #include <span>
+
+#ifdef ANDROID
+#include <sys/system_properties.h>
+#endif
 
 extern void dump_executable(std::span<const u8> data,
                             const ppu_module<lv2_obj> *_module,
@@ -36,6 +41,55 @@ ppu_manual_load_imports_exports(u32 imports_start, u32 imports_size,
                                 std::basic_string<char> &loaded_flags);
 
 LOG_CHANNEL(sys_prx);
+
+static std::string thor_prx_dump_target() {
+#ifdef ANDROID
+  char value[PROP_VALUE_MAX]{};
+  const int length = __system_property_get("debug.rpcsx.thor.dump_prx", value);
+  if (length > 0) {
+    return std::string(value, static_cast<usz>(length));
+  }
+#endif
+
+  if (const char *value = std::getenv("RPCSX_THOR_DUMP_PRX")) {
+    return value;
+  }
+
+  return {};
+}
+
+static bool thor_prx_dump_requested(std::string_view name,
+                                    std::string_view path) {
+  std::string target = fmt::to_lower(thor_prx_dump_target());
+  if (target.empty() || target == "0" || target == "off" ||
+      target == "false") {
+    return false;
+  }
+
+  if (target == "1" || target == "all") {
+    return true;
+  }
+
+  const std::string lower_name = fmt::to_lower(std::string{name});
+  const std::string lower_path = fmt::to_lower(std::string{path});
+  return lower_name.find(target) != umax || lower_path.find(target) != umax;
+}
+
+static std::string thor_prx_dump_path(const ppu_module<lv2_obj> &module,
+                                      std::string_view title_id) {
+  std::string_view filename = module.path;
+  filename = filename.substr(filename.find_last_of('/') + 1);
+
+  const std::string lower = fmt::to_lower(filename);
+  const std::string dir_path =
+      fs::get_cache_dir() + "ppu_progs/" +
+      std::string{!title_id.empty() ? title_id : "untitled"} +
+      fmt::format("-%s-%s", fmt::base57(module.sha1), filename) + '/';
+
+  return dir_path +
+         (lower.ends_with(".prx") || lower.ends_with(".sprx") ? "prog.prx"
+                                                              : "exec.elf");
+}
 
 // <string: firmware sprx, int: should hle if 1>
 extern const std::map<std::string_view, int> g_prx_list{
@@ -272,8 +326,10 @@ prx_load_module(const std::string &vpath, u64 flags,
     return {CELL_PRX_ERROR_UNSUPPORTED_PRX_TYPE, +"Failed to decrypt file"};
   }
 
+  const bool thor_dump_prx = thor_prx_dump_requested(name, vpath0);
   const auto src_data =
-      g_cfg.core.ppu_debug ? src.to_vector<u8>() : std::vector<u8>{};
+      g_cfg.core.ppu_debug || thor_dump_prx ? src.to_vector<u8>()
+                                            : std::vector<u8>{};
 
   ppu_prx_object obj = std::move(src);
   src.close();
@@ -284,9 +340,18 @@ prx_load_module(const std::string &vpath, u64 flags,
 
   const auto prx = ppu_load_prx(obj, false, path, file_offset);
 
-  if (g_cfg.core.ppu_debug) {
+  if (prx && (g_cfg.core.ppu_debug || thor_dump_prx)) {
     dump_executable({src_data.data(), src_data.size()}, prx.get(),
                     Emu.GetTitleID());
+
+    if (thor_dump_prx) {
+      sys_prx.notice("Thor PRX dump: module=\"%s\" vpath=\"%s\" output=\"%s\"",
+                     name, vpath0, thor_prx_dump_path(*prx, Emu.GetTitleID()));
+    }
+  } else if (thor_dump_prx) {
+    sys_prx.error("Thor PRX dump failed before module load: module=\"%s\" "
+                  "vpath=\"%s\"",
+                  name, vpath0);
   }
 
   obj.clear();

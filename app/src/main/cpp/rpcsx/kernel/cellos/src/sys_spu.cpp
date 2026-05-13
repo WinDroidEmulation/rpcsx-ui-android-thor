@@ -21,6 +21,8 @@
 #include "sys_mmapper.h"
 #include "sys_process.h"
 
+#include "rpcsx/fw/ps3/cellSpurs.h"
+
 #include "rx/align.hpp"
 #include "rx/asm.hpp"
 
@@ -57,9 +59,112 @@ struct thor_spurs_probe_stats {
   std::atomic<u64> starts{0};
   std::atomic<u64> joins{0};
   std::atomic<u64> last_log_time{0};
+  std::atomic<u64> last_state_log_time{0};
 };
 
 static thor_spurs_probe_stats g_thor_spurs_probe_stats;
+
+static u64 thor_spurs_pack_nibbles(const u8 *values, usz count) {
+  u64 packed = 0;
+
+  for (usz i = 0; i < std::min<usz>(count, 16); i++) {
+    packed |= (static_cast<u64>(values[i] & 0xf) << (i * 4));
+  }
+
+  return packed;
+}
+
+static void thor_spurs_probe_log_state(ppu_thread &ppu,
+                                       const lv2_spu_group &group, u32 id,
+                                       u32 cause, u32 status) {
+  if (!thor_spurs_probe_enabled() ||
+      !group.name.ends_with("CellSpursKernelGroup"sv) || group.max_num == 0) {
+    return;
+  }
+
+  const u32 spurs_addr = static_cast<u32>(group.args[0][1]);
+
+  if (!spurs_addr ||
+      !vm::check_addr(spurs_addr, vm::page_readable, sizeof(CellSpurs))) {
+    return;
+  }
+
+  const u64 now = get_system_time();
+  u64 last = g_thor_spurs_probe_stats.last_state_log_time.load();
+  if (now - last < 1'000'000) {
+    return;
+  }
+
+  if (!g_thor_spurs_probe_stats.last_state_log_time.compare_exchange_strong(
+          last, now)) {
+    return;
+  }
+
+  const vm::ptr<CellSpurs> spurs = vm::cast(spurs_addr);
+
+  u8 state1[16]{};
+  u8 state2[16]{};
+  u8 ready1[16]{};
+  u8 ready2[16]{};
+  u8 max1[16]{};
+  u8 current[16]{};
+  u8 pending[16]{};
+  u8 event1[16]{};
+  u8 event2[16]{};
+
+  for (usz i = 0; i < 16; i++) {
+    state1[i] = static_cast<u8>(+spurs->wklState1[i]);
+    state2[i] = static_cast<u8>(+spurs->wklState2[i]);
+    ready1[i] = static_cast<u8>(+spurs->wklReadyCount1[i]);
+    ready2[i] = static_cast<u8>(+spurs->wklIdleSpuCountOrReadyCount2[i]);
+    max1[i] = static_cast<u8>(+spurs->wklMaxContention[i]);
+    current[i] = spurs->wklCurrentContention[i];
+    pending[i] = spurs->wklPendingContention[i];
+    event1[i] = static_cast<u8>(+spurs->wklEvent1[i]);
+    event2[i] = static_cast<u8>(+spurs->wklEvent2[i]);
+  }
+
+  sys_spu.notice(
+      "Thor SPURS state probe: ppu=0x%x name=\"%s\" cia=0x%x lr=0x%x "
+      "group=0x%x spurs=0x%x arg0=0x%llx arg1=0x%llx arg2=0x%llx "
+      "arg3=0x%llx cause=0x%x status=0x%x flags=0x%x flags1=0x%x "
+      "nSpus=%u spuIdling=0x%x sysSrvMsg=0x%x sysSrvUpdate=%u "
+      "sysSrvTerminate=%u sysSrvExitBarrier=%u handlerDirty=%u "
+      "handlerWaiting=%u handlerExiting=%u ppu0=0x%llx ppu1=0x%llx "
+      "spuTG=0x%x eventQueue=0x%x eventPort=0x%x semPrv=0x%llx "
+      "wklEnabled=0x%x wklMskB=0x%x signal1=0x%x signal2=0x%x "
+      "flag=0x%llx flagReceiver=0x%x states1=0x%016llx "
+      "states2=0x%016llx ready1=0x%016llx ready2=0x%016llx "
+      "max=0x%016llx current=0x%016llx pending=0x%016llx "
+      "event1=0x%016llx event2=0x%016llx",
+      ppu.id, static_cast<std::string>(ppu.thread_name), ppu.cia, ppu.lr, id,
+      spurs_addr, group.args[0][0], group.args[0][1], group.args[0][2],
+      group.args[0][3], cause, status, static_cast<u32>(+spurs->flags),
+      static_cast<u32>(spurs->flags1), spurs->nSpus, spurs->spuIdling,
+      static_cast<u8>(+spurs->sysSrvMessage),
+      static_cast<u8>(+spurs->sysSrvMsgUpdateWorkload),
+      spurs->sysSrvMsgTerminate, spurs->sysSrvExitBarrier,
+      static_cast<u8>(+spurs->handlerDirty),
+      static_cast<u8>(+spurs->handlerWaiting),
+      static_cast<u8>(+spurs->handlerExiting), static_cast<u64>(+spurs->ppu0),
+      static_cast<u64>(+spurs->ppu1), static_cast<u32>(+spurs->spuTG),
+      static_cast<u32>(+spurs->eventQueue), static_cast<u32>(+spurs->eventPort),
+      static_cast<u64>(+spurs->semPrv), static_cast<u32>(+spurs->wklEnabled),
+      static_cast<u32>(+spurs->wklMskB),
+      static_cast<u16>(spurs->wklSignal1.load()),
+      static_cast<u16>(spurs->wklSignal2.load()),
+      static_cast<u64>(+spurs->wklFlag.flag),
+      static_cast<u8>(+spurs->wklFlagReceiver),
+      thor_spurs_pack_nibbles(state1, std::size(state1)),
+      thor_spurs_pack_nibbles(state2, std::size(state2)),
+      thor_spurs_pack_nibbles(ready1, std::size(ready1)),
+      thor_spurs_pack_nibbles(ready2, std::size(ready2)),
+      thor_spurs_pack_nibbles(max1, std::size(max1)),
+      thor_spurs_pack_nibbles(current, std::size(current)),
+      thor_spurs_pack_nibbles(pending, std::size(pending)),
+      thor_spurs_pack_nibbles(event1, std::size(event1)),
+      thor_spurs_pack_nibbles(event2, std::size(event2)));
+}
 
 static void thor_spurs_probe_log(const char *op, ppu_thread &ppu,
                                  const lv2_spu_group &group, u32 id,
@@ -103,6 +208,8 @@ static void thor_spurs_probe_log(const char *op, ppu_thread &ppu,
       group.max_run, +group.spurs_running, +group.init, +group.stop_count,
       +group.join_state, static_cast<u32>(+group.exit_status),
       group.waiter ? group.waiter->id : 0, cause, status);
+
+  thor_spurs_probe_log_state(ppu, group, id, cause, status);
 }
 
 template <>
